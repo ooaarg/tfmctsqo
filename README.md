@@ -1,6 +1,6 @@
-# Practical Training-Free MCTS Join Optimization
+# Practical Training-Free MCTS Query Optimization
 
-This repository contains code, scripts, and collected benchmark results for join-order optimization experiments on the JOB, JOB-Complex, and IMDb-CEB workloads.
+This repository contains code, scripts, and collected benchmark results for query optimization experiments on the JOB, JOB-Complex, and IMDb-CEB workloads.
 
 It combines three optimizer tracks:
 - `MCTSExtreme` (MCTS-based join-order search)
@@ -11,13 +11,27 @@ It also includes some precomputed outputs in `results/` and figures in `plots/`.
 
 ## Cloning
 
-HyperQO and AlphaJoin are git submodules, so clone recursively:
+This repo uses **git submodules** (HyperQO, AlphaJoin) and **Git LFS** (the
+`runs/` sweep outputs). Install Git LFS first, then clone recursively:
 
 ```bash
+git lfs install
 git clone --recurse-submodules <repo-url>
 # or, if already cloned:
 git submodule update --init --recursive
+git lfs pull
 ```
+
+> `runs/` is quite large in LFS.** It is stored as **~10,000 LFS objects
+> (~140 MB)**, so the LFS fetch is slow and bandwidth-heavy. If you only need the
+> code and figures (not the raw per-query run artifacts), skip the LFS download
+> and pull a subset on demand:
+>
+> ```bash
+> GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules <repo-url>
+> # later, fetch just what you need, e.g.:
+> git lfs pull --include="runs/CEB/results.jsonl"
+> ```
 
 ## Repository layout
 

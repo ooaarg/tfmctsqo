@@ -59,9 +59,9 @@
  static double mcts_extreme_exploration_constant = 1.4;
  static double mcts_extreme_gamma = 0.5;
  static int  mcts_extreme_random_seed = 0;
- int         mcts_start_budget = 100;	/* shared with local_search.c */
- static int  mcts_phases = 5;
- static int  mcts_top_k = 5;
+ int         mcts_start_budget = 480;	/* shared with local_search.c */
+ static int  mcts_phases = 1;
+ static int  mcts_top_k = 10;
  bool        mcts_cache_enabled = true;	/* shared with local_search.c */
  int         mcts_cache_size = 256;		/* shared with local_search.c */
 int         mcts_cache_max_size = 50000;	/* shared with local_search.c */
@@ -70,7 +70,7 @@ static bool mcts_log_steps = false;
 static bool mcts_full_budget = false;
 static int  mcts_plan_shape = 1;	/* plan-shape K: 0=bushy, 1=linear (zig-zag), >=2=K-component bushy */
  int         mcts_cost_eval_count = 0;	/* shared with local_search.c */
- static int  depth = 2;
+ static int  depth = 10;
 static int  mcts_rollouts_per_leaf = 1;
 int         mcts_patience = 0;			/* shared with local_search.c */
 
@@ -3202,7 +3202,7 @@ mcts_backpropagate(MctsContext *ctx, MctsNode *node, Cost rollout_cost)
                              "MCTS tree depth limit",
                              NULL,
                              &depth,
-                             2,
+                             10,
                              2, 100,
                              PGC_USERSET,
                              0, NULL, NULL, NULL);
@@ -3211,7 +3211,7 @@ mcts_backpropagate(MctsContext *ctx, MctsNode *node, Cost rollout_cost)
                              "Start budget for MCTS (iterations in phase 1)",
                              NULL,
                              &mcts_start_budget,
-                             100,
+                             480,
                              1, 100000000,
                              PGC_USERSET,
                              0, NULL, NULL, NULL);
@@ -3220,7 +3220,7 @@ mcts_backpropagate(MctsContext *ctx, MctsNode *node, Cost rollout_cost)
                              "Number of Luby-sequence restart phases",
                              NULL,
                              &mcts_phases,
-                             5,
+                             1,
                              1, 1000,
                              PGC_USERSET,
                              0, NULL, NULL, NULL);
@@ -3238,7 +3238,7 @@ mcts_backpropagate(MctsContext *ctx, MctsNode *node, Cost rollout_cost)
                              "Limit actions to top-k cheapest (0 = all)",
                              NULL,
                              &mcts_top_k,
-                             5,
+                             10,
                              0, 10000,
                              PGC_USERSET,
                              0, NULL, NULL, NULL);

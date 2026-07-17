@@ -5,6 +5,10 @@ figures directly from `../runs/` (MCTS-Extreme vs DPSize vs GEQO).
 
 ## Run
 
+Requires [`uv`](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`
+if you don't have it); it fetches numpy/pandas/matplotlib/scipy on the fly —
+no venv setup needed.
+
 ```bash
 uv run --no-project --with numpy --with pandas --with matplotlib --with scipy \
     python gen_results.py

@@ -42,7 +42,8 @@ git lfs pull
 - `source/resource/job_complex/`: JOB-Complex queries.
 - `mcts_extreme/`: the MCTS-Extreme PostgreSQL extension (C).
 - `ablation/`: the MCTS sweep harness (`sweep.py`) and run configs (`ablation/configs/`).
-- `runs/`: MCTS-Extreme sweep results (`CEB`, `JOB-JOBComplex`, `CEB-SAIOvsII`).
+- `runs/`: MCTS-Extreme sweep results (`CEB`, `JOB-JOBComplex`, `CEB-SAIOvsII`),
+  produced by `ablation/sweep.py` — see [`ablation/README.md`](ablation/README.md).
 - `results/`: collected benchmark runs (organized by workload / DB version / method).
 - `plots/`: figure generators (`gen_results.py`, `gen_stats.py`); output in `plots/figures/`.
 
@@ -81,6 +82,49 @@ scripts to find them. Typical invocation:
 cd source
 bash ./job_test.sh
 bash ./job_complex_test.sh
+```
+
+## Installing the MCTS-Extreme extension
+
+The MCTS optimizer track is implemented as the PostgreSQL C extension in
+`mcts_extreme/`. It uses PGXS; you **must** pass `PG_CONFIG` pointing at the
+`pg_config` of the PostgreSQL installation you want to install into. From the
+repository root:
+
+```bash
+cd mcts_extreme
+make PG_CONFIG=/path/to/pg_config
+make PG_CONFIG=/path/to/pg_config install
+```
+
+This installs `mcts_extreme.so` into `$(pg_config --pkglibdir)` and the
+extension control/SQL files into `$(pg_config --sharedir)/extension`.
+
+### Enabling MCTS in the extension
+
+The extension hooks into the planner via `join_search_hook`, so it must be
+loaded into every session that should use MCTS. Cluster-wide (recommended for
+benchmarks) — add to `postgresql.conf` and restart:
+
+```
+shared_preload_libraries = 'mcts_extreme'
+```
+
+```bash
+pg_ctl -D ./pgdata restart
+```
+
+Then register the extension once per database:
+
+```sql
+CREATE EXTENSION mcts_extreme;
+```
+
+For a quick per-session try-out instead:
+
+```sql
+LOAD 'mcts_extreme';
+CREATE EXTENSION mcts_extreme;   -- only the first time, per database
 ```
 
 ## Quick start
@@ -136,6 +180,18 @@ Stored outputs are already included, for example:
 - `results/job/pg19/AlphaJoin/perquery.csv`
 - `results/jobcomplex/pg19/HyperQO/perquery.csv`
 - `results/jobcomplex/pg19/MCTSExtreme/perquery.csv`
+
+The MCTS-Extreme sweep results in `runs/` were produced by `ablation/sweep.py`;
+[`ablation/README.md`](ablation/README.md) documents how to launch a sweep and
+the `runs/<id>/` file layout. The main file in each run is `results.jsonl` —
+the measurement table, one JSON line per `(optimizer config × query × seed)`
+with the chosen plan's cost, planning time, and execution time; next to it are
+`config.json` (the resolved sweep configuration) and the raw per-query
+`EXPLAIN ANALYZE` captures.
+Each run directory also carries its own auto-generated `README.md` with the
+exact workload, seeds, git revision, and MCTS cells used — e.g.
+[`runs/CEB/README.md`](runs/CEB/README.md), whose *Provenance* section explains
+how to regenerate that run from four `sweep.py` sweeps.
 
 Figures are produced by `plots/gen_results.py` and `plots/gen_stats.py` (they read
 `runs/`) into `plots/figures/`, e.g.:

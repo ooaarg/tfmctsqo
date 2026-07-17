@@ -26,6 +26,15 @@ start either way), then restart the cluster.
 
 ### 2. Install the Python deps
 
+If you don't have [`uv`](https://docs.astral.sh/uv/) yet, install it first:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.local/bin/env    # or restart your shell so `uv` is on PATH
+```
+
+Then:
+
 ```bash
 cd ablation
 uv sync --group dev

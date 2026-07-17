@@ -7,7 +7,10 @@ import pandas as pd
 from scipy import stats
 
 DATA = Path(__file__).resolve().parent.parent / "runs"
-MAIN = dict(config="single", reward="neg_log", agg="best", combo_id="d10_tk10_S_sb480")
+MAIN = dict(config="single", reward="neg_log", agg="best")
+# The JOB/JOB-Complex sweep labels the main MCTS cell "d10_tk10_S_sb480"; the
+# merged CEB run stores the same cell with an empty combo_id.
+MAIN_COMBOS = ("d10_tk10_S_sb480", "")
 TIE = 0.05
 B = 10000
 RNG = np.random.default_rng(42)
@@ -25,7 +28,7 @@ def prep():
     def method(r):
         if r["config"] in ("dp", "geqo"):
             return r["config"]
-        if all(r.get(k) == v for k, v in MAIN.items()):
+        if all(r.get(k) == v for k, v in MAIN.items()) and r.get("combo_id") in MAIN_COMBOS:
             return "mcts"
         return None
 

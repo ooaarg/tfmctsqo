@@ -1,0 +1,126 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Unique  (cost=375688.93..375689.05 rows=1 width=11) (actual time=165092.109..165092.879 rows=82.00 loops=1)
+   Buffers: shared hit=337116 read=423585, temp read=246 written=247
+   ->  Gather Merge  (cost=375688.93..375689.04 rows=1 width=11) (actual time=165092.107..165092.848 rows=218.00 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=337116 read=423585, temp read=246 written=247
+         ->  Sort  (cost=374688.92..374688.92 rows=1 width=11) (actual time=113029.300..113029.317 rows=109.00 loops=2)
+               Sort Key: account.display_name
+               Sort Method: quicksort  Memory: 25kB
+               Buffers: shared hit=337116 read=423585, temp read=246 written=247
+               Worker 0:  Sort Method: quicksort  Memory: 25kB
+               ->  Parallel Hash Join  (cost=374655.70..374688.91 rows=1 width=11) (actual time=113026.433..113029.246 rows=109.00 loops=2)
+                     Hash Cond: ((t1.site_id = u1.site_id) AND (q1.owner_user_id = u1.id))
+                     Buffers: shared hit=337108 read=423585, temp read=246 written=247
+                     ->  Merge Join  (cost=53790.00..53822.91 rows=38 width=20) (actual time=68176.732..68178.179 rows=10683.50 loops=2)
+                           Merge Cond: (t1.site_id = s1.site_id)
+                           Buffers: shared hit=293149 read=196683, temp read=246 written=247
+                           ->  Sort  (cost=53786.83..53803.09 rows=6505 width=16) (actual time=68172.516..68175.016 rows=52174.00 loops=2)
+                                 Sort Key: tq1.site_id
+                                 Sort Method: external merge  Disk: 1968kB
+                                 Buffers: shared hit=293149 read=196681, temp read=246 written=247
+                                 Worker 0:  Sort Method: quicksort  Memory: 1668kB
+                                 ->  Nested Loop  (cost=1.00..53374.82 rows=6505 width=16) (actual time=10.613..68135.218 rows=52924.50 loops=2)
+                                       Join Filter: (t1.site_id = q1.site_id)
+                                       Buffers: shared hit=293149 read=196681
+                                       ->  Nested Loop  (cost=0.56..4669.63 rows=6505 width=12) (actual time=4.580..15924.926 rows=52924.50 loops=2)
+                                             Buffers: shared hit=125 read=66308
+                                             ->  Parallel Seq Scan on tag t1  (cost=0.00..2573.31 rows=33 width=8) (actual time=0.304..5.624 rows=28.50 loops=2)
+                                                   Filter: ((name)::text = 'windows'::text)
+                                                   Rows Removed by Filter: 93356
+                                                   Buffers: shared read=1200
+                                             ->  Index Only Scan using tag_question_site_id_tag_id_question_id_idx on tag_question tq1  (cost=0.56..63.20 rows=32 width=12) (actual time=3.516..558.071 rows=1857.00 loops=57)
+                                                   Index Cond: ((site_id = t1.site_id) AND (tag_id = t1.id))
+                                                   Heap Fetches: 105849
+                                                   Index Searches: 57
+                                                   Buffers: shared hit=125 read=65108
+                                       ->  Index Scan using question_pkey on question q1  (cost=0.43..7.47 rows=1 width=12) (actual time=0.985..0.985 rows=1.00 loops=105849)
+                                             Index Cond: ((id = tq1.question_id) AND (site_id = tq1.site_id))
+                                             Index Searches: 105849
+                                             Buffers: shared hit=293024 read=130373
+                           ->  Sort  (cost=3.17..3.18 rows=1 width=4) (actual time=0.173..0.174 rows=1.00 loops=2)
+                                 Sort Key: s1.site_id
+                                 Sort Method: quicksort  Memory: 25kB
+                                 Buffers: shared read=2
+                                 Worker 0:  Sort Method: quicksort  Memory: 25kB
+                                 ->  Seq Scan on site s1  (cost=0.00..3.16 rows=1 width=4) (actual time=0.162..0.163 rows=1.00 loops=2)
+                                       Filter: ((site_name)::text = 'superuser'::text)
+                                       Rows Removed by Filter: 172
+                                       Buffers: shared read=2
+                     ->  Parallel Hash  (cost=320865.68..320865.68 rows=1 width=19) (actual time=44849.236..44849.246 rows=16046.50 loops=2)
+                           Buckets: 32768 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 2232kB
+                           Buffers: shared hit=43959 read=226902
+                           ->  Parallel Hash Join  (cost=2790.04..320865.68 rows=1 width=19) (actual time=35758.528..44666.207 rows=16046.50 loops=2)
+                                 Hash Cond: (u1.account_id = u2.account_id)
+                                 Buffers: shared hit=43959 read=226902
+                                 ->  Parallel Seq Scan on so_user u1  (cost=0.00..285109.54 rows=8790954 width=12) (actual time=0.906..8119.244 rows=10548651.00 loops=2)
+                                       Buffers: shared hit=2138 read=195062
+                                 ->  Parallel Hash  (cost=2790.03..2790.03 rows=1 width=19) (actual time=35754.447..35754.454 rows=2801.00 loops=2)
+                                       Buckets: 8192 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 440kB
+                                       Buffers: shared hit=41821 read=31840
+                                       ->  Nested Loop  (cost=2578.36..2790.03 rows=1 width=19) (actual time=66.877..17900.777 rows=2801.00 loops=2)
+                                             Buffers: shared hit=41821 read=31840
+                                             ->  Nested Loop  (cost=2577.93..2782.56 rows=1 width=4) (actual time=64.933..12860.998 rows=2801.00 loops=2)
+                                                   Join Filter: (t2.site_id = u2.site_id)
+                                                   Buffers: shared hit=27333 read=23920
+                                                   ->  Nested Loop  (cost=2577.49..2775.07 rows=1 width=20) (actual time=61.726..7667.503 rows=2801.00 loops=2)
+                                                         Join Filter: (t2.site_id = q2.site_id)
+                                                         Buffers: shared hit=12952 read=15893
+                                                         ->  Nested Loop  (cost=2577.06..2640.29 rows=18 width=16) (actual time=58.636..3096.219 rows=2801.00 loops=2)
+                                                               Buffers: shared hit=9 read=6428
+                                                               ->  Merge Join  (cost=2576.49..2576.52 rows=1 width=12) (actual time=55.332..55.336 rows=0.50 loops=2)
+                                                                     Merge Cond: (t2.site_id = s2.site_id)
+                                                                     Buffers: shared hit=7 read=1198
+                                                                     ->  Sort  (cost=2573.32..2573.32 rows=2 width=8) (actual time=55.307..55.308 rows=1.50 loops=2)
+                                                                           Sort Key: t2.site_id
+                                                                           Sort Method: quicksort  Memory: 25kB
+                                                                           Buffers: shared hit=6 read=1198
+                                                                           Worker 0:  Sort Method: quicksort  Memory: 25kB
+                                                                           ->  Parallel Seq Scan on tag t2  (cost=0.00..2573.31 rows=2 width=8) (actual time=29.242..55.278 rows=1.50 loops=2)
+                                                                                 Filter: ((name)::text = 'jestjs'::text)
+                                                                                 Rows Removed by Filter: 93384
+                                                                                 Buffers: shared hit=2 read=1198
+                                                                     ->  Sort  (cost=3.17..3.18 rows=1 width=4) (actual time=0.040..0.041 rows=1.00 loops=1)
+                                                                           Sort Key: s2.site_id
+                                                                           Sort Method: quicksort  Memory: 25kB
+                                                                           Buffers: shared hit=1
+                                                                           ->  Seq Scan on site s2  (cost=0.00..3.16 rows=1 width=4) (actual time=0.018..0.019 rows=1.00 loops=1)
+                                                                                 Filter: ((site_name)::text = 'stackoverflow'::text)
+                                                                                 Rows Removed by Filter: 172
+                                                                                 Buffers: shared hit=1
+                                                               ->  Index Only Scan using tag_question_site_id_tag_id_question_id_idx on tag_question tq2  (cost=0.56..63.45 rows=32 width=12) (actual time=6.603..6078.922 rows=5602.00 loops=1)
+                                                                     Index Cond: ((site_id = t2.site_id) AND (tag_id = t2.id))
+                                                                     Heap Fetches: 5602
+                                                                     Index Searches: 1
+                                                                     Buffers: shared hit=2 read=5230
+                                                         ->  Index Scan using question_pkey on question q2  (cost=0.43..7.47 rows=1 width=12) (actual time=1.629..1.629 rows=1.00 loops=5602)
+                                                               Index Cond: ((id = tq2.question_id) AND (site_id = tq2.site_id))
+                                                               Index Searches: 5602
+                                                               Buffers: shared hit=12943 read=9465
+                                                   ->  Index Scan using so_user_pkey on so_user u2  (cost=0.44..7.48 rows=1 width=12) (actual time=1.852..1.852 rows=1.00 loops=5602)
+                                                         Index Cond: ((id = q2.owner_user_id) AND (site_id = q2.site_id))
+                                                         Index Searches: 5602
+                                                         Buffers: shared hit=14381 read=8027
+                                             ->  Index Scan using account_pkey on account  (cost=0.43..7.47 rows=1 width=15) (actual time=1.797..1.797 rows=1.00 loops=5602)
+                                                   Index Cond: (id = u2.account_id)
+                                                   Index Searches: 5602
+                                                   Buffers: shared hit=14488 read=7920
+ Planning:
+   Buffers: shared hit=576 read=99
+ Planning Time: 214.565 ms
+ Execution Time: 165095.503 ms
+(111 rows)
+
+Time: 165382.952 ms (02:45.383)

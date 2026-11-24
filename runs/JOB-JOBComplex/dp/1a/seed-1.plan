@@ -1,0 +1,63 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=19502.79..19502.80 rows=1 width=68) (actual time=1609.825..1611.511 rows=1.00 loops=1)
+   Buffers: shared hit=890 read=8937
+   ->  Gather  (cost=19502.57..19502.78 rows=2 width=68) (actual time=472.334..1611.497 rows=3.00 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=890 read=8937
+         ->  Partial Aggregate  (cost=18502.57..18502.58 rows=1 width=68) (actual time=830.069..830.075 rows=1.00 loops=3)
+               Buffers: shared hit=890 read=8937
+               ->  Nested Loop  (cost=4.35..18502.33 rows=32 width=45) (actual time=457.258..829.980 rows=47.33 loops=3)
+                     Join Filter: (mc.movie_id = t.id)
+                     Buffers: shared hit=890 read=8937
+                     ->  Hash Join  (cost=3.92..18483.62 rows=32 width=32) (actual time=455.263..744.104 rows=47.33 loops=3)
+                           Hash Cond: (mc.company_type_id = ct.id)
+                           Buffers: shared hit=532 read=8726
+                           ->  Nested Loop  (cost=2.86..18481.86 rows=129 width=36) (actual time=454.202..742.988 rows=49.00 loops=3)
+                                 Buffers: shared hit=530 read=8725
+                                 ->  Hash Join  (cost=2.43..15253.60 rows=5089 width=4) (actual time=449.784..449.898 rows=83.33 loops=3)
+                                       Hash Cond: (mi_idx.info_type_id = it.id)
+                                       Buffers: shared hit=2 read=7936
+                                       ->  Parallel Seq Scan on movie_info_idx mi_idx  (cost=0.00..13685.15 rows=575015 width=8) (actual time=3.062..426.429 rows=460011.67 loops=3)
+                                             Buffers: shared read=7935
+                                       ->  Hash  (cost=2.41..2.41 rows=1 width=4) (actual time=0.465..0.466 rows=1.00 loops=3)
+                                             Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                             Buffers: shared hit=2 read=1
+                                             ->  Seq Scan on info_type it  (cost=0.00..2.41 rows=1 width=4) (actual time=0.458..0.458 rows=1.00 loops=3)
+                                                   Filter: ((info)::text = 'top 250 rank'::text)
+                                                   Rows Removed by Filter: 112
+                                                   Buffers: shared hit=2 read=1
+                                 ->  Index Scan using movie_id_movie_companies on movie_companies mc  (cost=0.43..0.62 rows=1 width=32) (actual time=3.496..3.516 rows=0.59 loops=250)
+                                       Index Cond: (movie_id = mi_idx.movie_id)
+                                       Filter: ((note !~~ '%(as Metro-Goldwyn-Mayer Pictures)%'::text) AND ((note ~~ '%(co-production)%'::text) OR (note ~~ '%(presents)%'::text)))
+                                       Rows Removed by Filter: 33
+                                       Index Searches: 250
+                                       Buffers: shared hit=528 read=789
+                           ->  Hash  (cost=1.05..1.05 rows=1 width=4) (actual time=1.039..1.040 rows=1.00 loops=3)
+                                 Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                 Buffers: shared hit=2 read=1
+                                 ->  Seq Scan on company_type ct  (cost=0.00..1.05 rows=1 width=4) (actual time=1.032..1.033 rows=1.00 loops=3)
+                                       Filter: ((kind)::text = 'production companies'::text)
+                                       Rows Removed by Filter: 3
+                                       Buffers: shared hit=2 read=1
+                     ->  Index Scan using title_pkey on title t  (cost=0.43..0.57 rows=1 width=25) (actual time=1.812..1.812 rows=1.00 loops=142)
+                           Index Cond: (id = mi_idx.movie_id)
+                           Index Searches: 142
+                           Buffers: shared hit=358 read=211
+ Planning:
+   Buffers: shared hit=354 read=73
+ Planning Time: 98.489 ms
+ Execution Time: 1615.118 ms
+(49 rows)
+
+Time: 1775.544 ms (00:01.776)

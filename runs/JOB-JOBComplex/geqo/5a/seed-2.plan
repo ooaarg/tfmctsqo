@@ -1,0 +1,59 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=38434.92..38434.93 rows=1 width=32) (actual time=817.478..826.937 rows=1.00 loops=1)
+   Buffers: shared hit=2 read=18791
+   ->  Gather  (cost=38434.71..38434.92 rows=2 width=32) (actual time=813.826..826.927 rows=3.00 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=2 read=18791
+         ->  Partial Aggregate  (cost=37434.71..37434.72 rows=1 width=32) (actual time=802.784..802.788 rows=1.00 loops=3)
+               Buffers: shared hit=2 read=18791
+               ->  Nested Loop  (cost=2.07..37434.69 rows=6 width=17) (actual time=802.772..802.775 rows=0.00 loops=3)
+                     Buffers: shared hit=2 read=18791
+                     ->  Nested Loop  (cost=1.93..37433.73 rows=6 width=21) (actual time=802.771..802.774 rows=0.00 loops=3)
+                           Buffers: shared hit=2 read=18791
+                           ->  Nested Loop  (cost=1.49..37065.56 rows=102 width=25) (actual time=802.771..802.773 rows=0.00 loops=3)
+                                 Buffers: shared hit=2 read=18791
+                                 ->  Hash Join  (cost=1.06..35103.61 rows=254 width=4) (actual time=802.770..802.772 rows=0.00 loops=3)
+                                       Hash Cond: (mc.company_type_id = ct.id)
+                                       Buffers: shared hit=2 read=18791
+                                       ->  Parallel Seq Scan on movie_companies mc  (cost=0.00..35097.06 rows=1015 width=8) (actual time=19.947..801.507 rows=8008.33 loops=3)
+                                             Filter: ((note ~~ '%(theatrical)%'::text) AND (note ~~ '%(France)%'::text))
+                                             Rows Removed by Filter: 861701
+                                             Buffers: shared read=18790
+                                       ->  Hash  (cost=1.05..1.05 rows=1 width=4) (actual time=0.718..0.719 rows=1.00 loops=3)
+                                             Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                             Buffers: shared hit=2 read=1
+                                             ->  Seq Scan on company_type ct  (cost=0.00..1.05 rows=1 width=4) (actual time=0.709..0.710 rows=1.00 loops=3)
+                                                   Filter: ((kind)::text = 'production companies'::text)
+                                                   Rows Removed by Filter: 3
+                                                   Buffers: shared hit=2 read=1
+                                 ->  Index Scan using title_pkey on title t  (cost=0.43..7.72 rows=1 width=21) (never executed)
+                                       Index Cond: (id = mc.movie_id)
+                                       Filter: (production_year > 2005)
+                                       Index Searches: 0
+                           ->  Index Scan using movie_id_movie_info on movie_info mi  (cost=0.43..3.60 rows=1 width=8) (never executed)
+                                 Index Cond: (movie_id = t.id)
+                                 Filter: (info = ANY ('{Sweden,Norway,Germany,Denmark,Swedish,Denish,Norwegian,German}'::text[]))
+                                 Index Searches: 0
+                     ->  Index Only Scan using info_type_pkey on info_type it  (cost=0.14..0.16 rows=1 width=4) (never executed)
+                           Index Cond: (id = mi.info_type_id)
+                           Heap Fetches: 0
+                           Index Searches: 0
+ Planning:
+   Buffers: shared hit=415 read=79
+ Planning Time: 71.484 ms
+ Execution Time: 828.398 ms
+(44 rows)
+
+Time: 948.232 ms

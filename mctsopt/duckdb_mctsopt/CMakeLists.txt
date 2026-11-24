@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.16)
+project(DuckDBMctsoptExtension LANGUAGES C CXX)
+add_library(duckdb_mctsopt_core STATIC ../mctsopt_core/src/search.c)
+set_target_properties(duckdb_mctsopt_core PROPERTIES POSITION_INDEPENDENT_CODE ON C_STANDARD 11 C_VISIBILITY_PRESET hidden)
+target_include_directories(duckdb_mctsopt_core PUBLIC ../mctsopt_core/include)
+# Native cancellation and allocation failures must unwind through the C engine.
+target_compile_options(duckdb_mctsopt_core PRIVATE -fexceptions -fno-fast-math -ffp-contract=off)
+include_directories(../mctsopt_core/include)
+set(EXTENSION_SOURCES extension.cpp core_adapter.cpp)
+build_static_extension(duckdb_mctsopt ${EXTENSION_SOURCES})
+build_loadable_extension(duckdb_mctsopt "-warnings" ${EXTENSION_SOURCES})
+target_link_libraries(duckdb_mctsopt_extension duckdb_mctsopt_core)
+target_link_libraries(duckdb_mctsopt_loadable_extension duckdb_mctsopt_core)

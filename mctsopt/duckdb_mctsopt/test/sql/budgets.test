@@ -1,0 +1,57 @@
+require duckdb_mctsopt
+
+require json
+
+statement ok
+SET threads=1;
+SET max_execution_time=30000;
+SET duckdb_mctsopt_seed=42;
+SET duckdb_mctsopt_iterations=25;
+SET duckdb_mctsopt_phases=1;
+SET duckdb_mctsopt_luby_enabled=false;
+SET duckdb_mctsopt_min_relations=3;
+
+loop i 1 5
+
+statement ok
+CREATE TABLE t{i} AS SELECT range AS id FROM range(10);
+
+endloop
+
+foreach reward neg_cost neg_log norm_neg_log
+
+foreach aggregation best average
+
+foreach luby false true
+
+statement ok
+SET duckdb_mctsopt_reward_map='{reward}';
+SET duckdb_mctsopt_uct_aggregation='{aggregation}';
+SET duckdb_mctsopt_luby_enabled={luby};
+SET duckdb_mctsopt_phases=3;
+SET duckdb_mctsopt_full_budget=true;
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM t1, t2, t3, t4
+WHERE t1.id=t2.id AND t2.id=t3.id AND t3.id=t4.id;
+----
+10
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+
+query IIII
+SELECT (value->>'requested_iterations')::INTEGER = CASE WHEN {luby} THEN 100 ELSE 75 END,
+       (value->>'phases_completed')::INTEGER,
+       (value->>'iterations')::INTEGER > 0,
+       (value->>'fallback')::BOOLEAN
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+----
+true	3	true	false
+
+endloop
+
+endloop
+
+endloop

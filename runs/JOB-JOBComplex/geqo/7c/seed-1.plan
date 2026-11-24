@@ -1,0 +1,81 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=58456.07..58456.08 rows=1 width=64) (actual time=20828.197..20828.202 rows=1.00 loops=1)
+   Buffers: shared hit=4505540 read=121749
+   ->  Nested Loop  (cost=1474.68..58456.06 rows=1 width=113) (actual time=45.065..20536.935 rows=68185.00 loops=1)
+         Buffers: shared hit=4432356 read=121179
+         ->  Nested Loop  (cost=1474.25..58455.60 rows=1 width=121) (actual time=41.480..15626.679 rows=109842.00 loops=1)
+               Buffers: shared hit=4001633 read=112534
+               ->  Nested Loop  (cost=1474.12..58454.95 rows=4 width=125) (actual time=40.842..15522.334 rows=127027.00 loops=1)
+                     Buffers: shared hit=3747580 read=112533
+                     ->  Nested Loop  (cost=1473.83..58413.17 rows=122 width=117) (actual time=38.456..14348.358 rows=1618304.00 loops=1)
+                           Buffers: shared hit=396644 read=112308
+                           ->  Nested Loop  (cost=1473.39..58178.30 rows=14 width=125) (actual time=37.003..7021.753 rows=12595.00 loops=1)
+                                 Buffers: shared hit=335144 read=92620
+                                 ->  Nested Loop  (cost=1472.96..58123.71 rows=90 width=121) (actual time=35.497..6913.911 rows=13063.00 loops=1)
+                                       Buffers: shared hit=288015 read=89717
+                                       ->  Nested Loop  (cost=1472.53..55563.74 rows=812 width=102) (actual time=22.142..227.778 rows=84183.00 loops=1)
+                                             Buffers: shared read=41000
+                                             ->  Seq Scan on info_type it  (cost=0.00..2.41 rows=1 width=4) (actual time=1.277..1.284 rows=1.00 loops=1)
+                                                   Filter: ((info)::text = 'mini biography'::text)
+                                                   Rows Removed by Filter: 112
+                                                   Buffers: shared read=1
+                                             ->  Bitmap Heap Scan on person_info pi  (cost=1472.53..55519.63 rows=4170 width=106) (actual time=20.859..217.090 rows=84183.00 loops=1)
+                                                   Recheck Cond: (it.id = info_type_id)
+                                                   Filter: (note IS NOT NULL)
+                                                   Rows Removed by Filter: 1
+                                                   Heap Blocks: exact=40925
+                                                   Buffers: shared read=40999
+                                                   ->  Bitmap Index Scan on info_type_id_person_info  (cost=0.00..1471.49 rows=134808 width=0) (actual time=14.558..14.559 rows=84184.00 loops=1)
+                                                         Index Cond: (info_type_id = it.id)
+                                                         Index Searches: 1
+                                                         Buffers: shared read=74
+                                       ->  Index Scan using name_pkey on name n  (cost=0.43..3.15 rows=1 width=19) (actual time=0.079..0.079 rows=0.16 loops=84183)
+                                             Index Cond: (id = pi.person_id)
+                                             Filter: (((name_pcode_cf)::text >= 'A'::text) AND ((name_pcode_cf)::text <= 'F'::text) AND (((gender)::text = 'm'::text) OR (((gender)::text = 'f'::text) AND (name ~~ 'A%'::text))))
+                                             Rows Removed by Filter: 1
+                                             Index Searches: 84183
+                                             Buffers: shared hit=288015 read=48717
+                                 ->  Index Scan using person_id_aka_name on aka_name an  (cost=0.42..0.59 rows=2 width=4) (actual time=0.007..0.008 rows=0.96 loops=13063)
+                                       Index Cond: (person_id = n.id)
+                                       Filter: ((name ~~ '%a%'::text) OR (name ~~ 'A%'::text))
+                                       Rows Removed by Filter: 0
+                                       Index Searches: 13063
+                                       Buffers: shared hit=47129 read=2903
+                           ->  Index Scan using person_id_cast_info on cast_info ci  (cost=0.44..11.76 rows=502 width=8) (actual time=0.160..0.571 rows=128.49 loops=12595)
+                                 Index Cond: (person_id = n.id)
+                                 Index Searches: 12595
+                                 Buffers: shared hit=61500 read=19688
+                     ->  Index Scan using linked_movie_id_movie_link on movie_link ml  (cost=0.29..0.32 rows=2 width=8) (actual time=0.001..0.001 rows=0.08 loops=1618304)
+                           Index Cond: (linked_movie_id = ci.movie_id)
+                           Index Searches: 1618304
+                           Buffers: shared hit=3350936 read=225
+               ->  Index Scan using link_type_pkey on link_type lt  (cost=0.14..0.16 rows=1 width=4) (actual time=0.001..0.001 rows=0.86 loops=127027)
+                     Index Cond: (id = ml.link_type_id)
+                     Filter: ((link)::text = ANY ('{references,"referenced in",features,"featured in"}'::text[]))
+                     Rows Removed by Filter: 0
+                     Index Searches: 127027
+                     Buffers: shared hit=254053 read=1
+         ->  Index Scan using title_pkey on title t  (cost=0.43..0.46 rows=1 width=4) (actual time=0.044..0.044 rows=0.62 loops=109842)
+               Index Cond: (id = ci.movie_id)
+               Filter: ((production_year >= 1980) AND (production_year <= 2010))
+               Rows Removed by Filter: 0
+               Index Searches: 109842
+               Buffers: shared hit=430723 read=8645
+ Planning:
+   Buffers: shared hit=607 read=111
+ Planning Time: 108.028 ms
+ Execution Time: 20829.760 ms
+(66 rows)
+
+Time: 20976.558 ms (00:20.977)

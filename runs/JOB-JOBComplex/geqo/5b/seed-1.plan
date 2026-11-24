@@ -1,0 +1,57 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=38862.68..38862.69 rows=1 width=32) (actual time=685.225..697.992 rows=1.00 loops=1)
+   Buffers: shared hit=2 read=18791
+   ->  Nested Loop  (cost=1002.07..38862.68 rows=1 width=17) (actual time=685.212..697.979 rows=0.00 loops=1)
+         Buffers: shared hit=2 read=18791
+         ->  Gather  (cost=1001.93..38862.52 rows=1 width=21) (actual time=685.211..697.969 rows=0.00 loops=1)
+               Workers Planned: 2
+               Workers Launched: 2
+               Buffers: shared hit=2 read=18791
+               ->  Nested Loop  (cost=1.93..37862.42 rows=1 width=21) (actual time=672.545..672.548 rows=0.00 loops=3)
+                     Buffers: shared hit=2 read=18791
+                     ->  Nested Loop  (cost=1.49..37858.32 rows=1 width=25) (actual time=672.544..672.547 rows=0.00 loops=3)
+                           Buffers: shared hit=2 read=18791
+                           ->  Hash Join  (cost=1.06..37816.07 rows=5 width=4) (actual time=672.543..672.545 rows=0.00 loops=3)
+                                 Hash Cond: (mc.company_type_id = ct.id)
+                                 Buffers: shared hit=2 read=18791
+                                 ->  Parallel Seq Scan on movie_companies mc  (cost=0.00..37814.90 rows=21 width=8) (actual time=9.939..671.846 rows=472.67 loops=3)
+                                       Filter: ((note ~~ '%(VHS)%'::text) AND (note ~~ '%(USA)%'::text) AND (note ~~ '%(1994)%'::text))
+                                       Rows Removed by Filter: 869237
+                                       Buffers: shared read=18790
+                                 ->  Hash  (cost=1.05..1.05 rows=1 width=4) (actual time=0.583..0.584 rows=1.00 loops=3)
+                                       Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                       Buffers: shared hit=2 read=1
+                                       ->  Seq Scan on company_type ct  (cost=0.00..1.05 rows=1 width=4) (actual time=0.578..0.578 rows=1.00 loops=3)
+                                             Filter: ((kind)::text = 'production companies'::text)
+                                             Rows Removed by Filter: 3
+                                             Buffers: shared hit=2 read=1
+                           ->  Index Scan using title_pkey on title t  (cost=0.43..8.45 rows=1 width=21) (never executed)
+                                 Index Cond: (id = mc.movie_id)
+                                 Filter: (production_year > 2010)
+                                 Index Searches: 0
+                     ->  Index Scan using movie_id_movie_info on movie_info mi  (cost=0.43..4.07 rows=3 width=8) (never executed)
+                           Index Cond: (movie_id = t.id)
+                           Filter: (info = ANY ('{USA,America}'::text[]))
+                           Index Searches: 0
+         ->  Index Only Scan using info_type_pkey on info_type it  (cost=0.14..0.16 rows=1 width=4) (never executed)
+               Index Cond: (id = mi.info_type_id)
+               Heap Fetches: 0
+               Index Searches: 0
+ Planning:
+   Buffers: shared hit=415 read=79
+ Planning Time: 80.233 ms
+ Execution Time: 699.076 ms
+(42 rows)
+
+Time: 819.913 ms

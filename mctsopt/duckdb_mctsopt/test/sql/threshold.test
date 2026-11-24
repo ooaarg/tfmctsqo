@@ -1,0 +1,102 @@
+require duckdb_mctsopt
+
+require json
+
+statement ok
+SET threads=1;
+SET max_execution_time=30000;
+SET duckdb_mctsopt_seed=42;
+SET duckdb_mctsopt_iterations=25;
+SET duckdb_mctsopt_phases=1;
+SET duckdb_mctsopt_luby_enabled=false;
+
+loop i 1 15
+
+statement ok
+CREATE TABLE t{i} AS SELECT range AS id, range % ({i}+1) AS fk FROM range(100*{i});
+
+endloop
+
+statement ok
+RESET duckdb_mctsopt_min_relations;
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM t1,t2,t3,t4,t5,t6,t7,t8
+WHERE t1.fk=t2.id
+  AND t2.fk=t3.id
+  AND t3.fk=t4.id
+  AND t4.fk=t5.id
+  AND t5.fk=t6.id
+  AND t6.fk=t7.id
+  AND t7.fk=t8.id;
+----
+100
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+
+query IIT
+SELECT (value->>'relation_count')::INTEGER,
+       (value->>'selected')::BOOLEAN, value->>'reason'
+FROM json_each(duckdb_mctsopt_diagnostics());
+----
+8	false	below_min_relations
+
+statement ok
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14
+WHERE t1.id=t2.id
+  AND t2.id=t3.id
+  AND t3.id=t4.id
+  AND t4.id=t5.id
+  AND t5.id=t6.id
+  AND t6.id=t7.id
+  AND t7.id=t8.id
+  AND t8.id=t9.id
+  AND t9.id=t10.id
+  AND t10.id=t11.id
+  AND t11.id=t12.id
+  AND t12.id=t13.id
+  AND t13.id=t14.id;
+----
+100
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+
+query II
+SELECT (value->>'relation_count')::INTEGER,
+       (value->>'selected')::BOOLEAN
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+----
+14	true
+
+statement ok
+CREATE TABLE before_disabled AS SELECT duckdb_mctsopt_diagnostics() AS diagnostics;
+
+query I
+SELECT count(*) FROM t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14
+WHERE t1.id=t2.id
+  AND t2.id=t3.id
+  AND t3.id=t4.id
+  AND t4.id=t5.id
+  AND t5.id=t6.id
+  AND t6.id=t7.id
+  AND t7.id=t8.id
+  AND t8.id=t9.id
+  AND t9.id=t10.id
+  AND t10.id=t11.id
+  AND t11.id=t12.id
+  AND t12.id=t13.id
+  AND t13.id=t14.id;
+----
+100
+
+query I
+SELECT diagnostics = duckdb_mctsopt_diagnostics() FROM before_disabled;
+----
+true
+

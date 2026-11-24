@@ -1,0 +1,227 @@
+require duckdb_mctsopt
+
+require json
+
+query I
+SELECT NOT current_setting('duckdb_mctsopt_pair_cache')
+   AND current_setting('duckdb_mctsopt_cache_connections');
+----
+true
+
+statement ok
+SET threads=1;
+SET max_execution_time=30000;
+SET duckdb_mctsopt_min_relations=3;
+SET duckdb_mctsopt_scope='all';
+SET duckdb_mctsopt_plan_shape=2;
+SET duckdb_mctsopt_depth=2;
+SET duckdb_mctsopt_top_k=2;
+SET duckdb_mctsopt_full_budget=true;
+CREATE TABLE a AS SELECT range AS id FROM range(10);
+CREATE TABLE b AS SELECT range AS id FROM range(20);
+CREATE TABLE c AS SELECT range AS id FROM range(30);
+CREATE TABLE d AS SELECT range AS id FROM range(20);
+CREATE TABLE e AS SELECT range AS id FROM range(20);
+CREATE TABLE saved(kind VARCHAR, seed INTEGER, budget INTEGER, shape INTEGER, connections BOOLEAN, cached BOOLEAN, value JSON);
+
+foreach seed 11 23
+
+foreach budget 250 1000
+
+foreach shape 0 1 2
+
+foreach connections false true
+
+foreach cached false true
+
+statement ok
+SET duckdb_mctsopt_seed={seed};
+SET duckdb_mctsopt_plan_shape={shape};
+SET duckdb_mctsopt_iterations={budget};
+SET duckdb_mctsopt_cache_connections={connections};
+SET duckdb_mctsopt_pair_cache={cached};
+
+statement ok
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM a JOIN b ON a.id=b.id JOIN c ON a.id=c.id;
+----
+10
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+INSERT INTO saved SELECT 'inner', {seed}, {budget}, {shape}, {connections}, {cached}, value
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+
+statement ok
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM a LEFT JOIN b ON a.id=b.id LEFT JOIN c ON a.id=c.id;
+----
+10
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+INSERT INTO saved SELECT 'left', {seed}, {budget}, {shape}, {connections}, {cached}, value
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+
+statement ok
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM a CROSS JOIN b CROSS JOIN c;
+----
+6000
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+INSERT INTO saved SELECT 'cross', {seed}, {budget}, {shape}, {connections}, {cached}, value
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+
+statement ok
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM a, b, c, d, e
+WHERE a.id+c.id=b.id AND b.id=d.id AND d.id=e.id;
+----
+155
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+INSERT INTO saved SELECT 'hyperedge', {seed}, {budget}, {shape}, {connections}, {cached}, value
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+
+endloop
+
+endloop
+
+endloop
+
+endloop
+
+endloop
+
+query I
+SELECT count(*) FROM saved;
+----
+192
+
+query IIII
+SELECT bool_and((value->>'pair_cache_enabled')::BOOLEAN=cached),
+       bool_and((value->>'cache_connections')::BOOLEAN=connections),
+       sum((value->>'pair_cache_hits')::BIGINT) > 0,
+       sum((value->>'connection_cache_hits')::BIGINT) > 0
+FROM saved;
+----
+true	true	true	true
+
+# Compare every non-timing search field across all four cache combinations.
+query TIIIT
+SELECT kind,seed,budget,shape,field.key FROM saved,json_each(saved.value) field
+WHERE NOT starts_with(field.key,'pair_cache_')
+  AND NOT starts_with(field.key,'connection_cache_')
+  AND field.key NOT IN ('cache_connections','cache_invalidations')
+  AND NOT ends_with(field.key,'_ms')
+GROUP BY kind,seed,budget,shape,field.key
+HAVING count(*)<>4 OR count(DISTINCT field.value::VARCHAR)<>1;
+----
+
+query I
+SELECT count(*) FROM saved WHERE (value->>'selected')::BOOLEAN;
+----
+192
+
+query I
+SELECT count(*) FROM saved
+WHERE (value->>'fallback')::BOOLEAN OR (value->>'initial_has_plan')::BOOLEAN;
+----
+0
+
+statement ok
+SET duckdb_mctsopt_enabled=true;
+SET duckdb_mctsopt_pair_cache=true;
+SET duckdb_mctsopt_greedy_init=true;
+
+statement error
+SELECT count(*) FROM a JOIN b ON a.id=b.id JOIN c ON a.id=c.id;
+----
+Pair cache requires pure MCTS
+
+statement ok
+SET duckdb_mctsopt_greedy_init=false;
+
+query I
+SELECT count(*) FROM a JOIN b ON a.id=b.id JOIN c ON a.id=c.id;
+----
+10
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+SET duckdb_mctsopt_seed=42;
+SET duckdb_mctsopt_iterations=25;
+SET duckdb_mctsopt_top_k=20;
+SET duckdb_mctsopt_depth=10;
+SET duckdb_mctsopt_plan_shape=2;
+SET duckdb_mctsopt_full_budget=false;
+CREATE TABLE failed(connections BOOLEAN, cached BOOLEAN, value JSON);
+
+loop i 1 8
+
+statement ok
+CREATE TABLE t{i} AS SELECT range AS id, range % ({i}+1) AS fk FROM range(100*{i});
+
+endloop
+
+# Preserve native fallback when the search cannot build a legal complete plan.
+foreach connections false true
+
+foreach cached false true
+
+statement ok
+SET duckdb_mctsopt_cache_connections={connections};
+SET duckdb_mctsopt_pair_cache={cached};
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM t1
+LEFT JOIN t2 ON t2.id=t1.id+50
+INNER JOIN t3 ON t3.id=t1.id
+SEMI JOIN t4 ON t4.fk=t3.fk
+ANTI JOIN t5 ON t5.id=t1.id+480
+LEFT JOIN t6 ON t6.id=t2.id AND t6.fk<>t1.fk
+INNER JOIN t7 ON t7.id=t3.id AND (t6.id IS NULL OR t7.fk>t6.fk);
+----
+48
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+INSERT INTO failed SELECT {connections}, {cached}, value
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+
+endloop
+
+endloop
+
+query I
+SELECT count(*) FROM failed WHERE (value->>'fallback')::BOOLEAN
+  AND value->>'fallback_reason'='no_plan';
+----
+4
+
+query T
+SELECT field.key FROM failed,json_each(failed.value) field
+WHERE NOT starts_with(field.key,'pair_cache_')
+  AND NOT starts_with(field.key,'connection_cache_')
+  AND field.key NOT IN ('cache_connections','cache_invalidations')
+  AND NOT ends_with(field.key,'_ms')
+GROUP BY field.key
+HAVING count(*)<>4 OR count(DISTINCT field.value::VARCHAR)<>1;
+----
+
+query I
+SELECT sum((value->>'cache_invalidations')::BIGINT) > 0 FROM failed;
+----
+true

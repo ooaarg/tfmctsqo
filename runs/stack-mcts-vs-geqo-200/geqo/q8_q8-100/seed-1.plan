@@ -1,0 +1,90 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=5597.25..5597.26 rows=1 width=8) (actual time=11937.088..11937.197 rows=1.00 loops=1)
+   Buffers: shared hit=5496 read=341855
+   ->  Sort  (cost=5597.24..5597.24 rows=1 width=4) (actual time=11937.083..11937.192 rows=0.00 loops=1)
+         Sort Key: q1.id
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=5496 read=341855
+         ->  Nested Loop  (cost=1006.74..5597.23 rows=1 width=4) (actual time=11937.046..11937.154 rows=0.00 loops=1)
+               Join Filter: ((c1.date > c2.date) AND (pl.post_id_from = c1.post_id) AND (c1.site_id = tag.site_id))
+               Buffers: shared hit=5493 read=341855
+               ->  Nested Loop  (cost=1006.17..5589.07 rows=1 width=52) (actual time=11937.045..11937.153 rows=0.00 loops=1)
+                     Join Filter: ((pl.post_id_to = q2.id) AND (pl.site_id = tag.site_id))
+                     Buffers: shared hit=5493 read=341855
+                     ->  Nested Loop  (cost=1005.74..5581.05 rows=1 width=56) (actual time=11937.045..11937.152 rows=0.00 loops=1)
+                           Join Filter: (c2.site_id = tag.site_id)
+                           Buffers: shared hit=5493 read=341855
+                           ->  Gather  (cost=1005.17..5572.89 rows=1 width=40) (actual time=11937.044..11937.151 rows=0.00 loops=1)
+                                 Workers Planned: 1
+                                 Workers Launched: 1
+                                 Buffers: shared hit=5493 read=341855
+                                 ->  Nested Loop  (cost=5.17..4572.79 rows=1 width=40) (actual time=7226.325..7226.335 rows=0.00 loops=2)
+                                       Join Filter: (q2.site_id = tag.site_id)
+                                       Buffers: shared hit=5493 read=341855
+                                       ->  Nested Loop  (cost=4.74..4496.42 rows=18 width=32) (actual time=7226.324..7226.334 rows=0.00 loops=2)
+                                             Join Filter: ((tag.id = tq2.tag_id) AND (tag.site_id = tq2.site_id))
+                                             Buffers: shared hit=5493 read=341855
+                                             ->  Nested Loop  (cost=4.17..4435.94 rows=1 width=32) (actual time=7226.324..7226.333 rows=0.00 loops=2)
+                                                   Join Filter: (q1.site_id = tag.site_id)
+                                                   Buffers: shared hit=5493 read=341855
+                                                   ->  Hash Join  (cost=3.74..4317.14 rows=28 width=24) (actual time=7226.323..7226.331 rows=0.00 loops=2)
+                                                         Hash Cond: (tag.site_id = site.site_id)
+                                                         Buffers: shared hit=5493 read=341855
+                                                         ->  Nested Loop  (cost=0.56..4300.85 rows=4879 width=20) (actual time=2.875..7185.717 rows=630600.50 loops=2)
+                                                               Buffers: shared hit=5491 read=341855
+                                                               ->  Parallel Seq Scan on tag  (cost=0.00..2710.64 rows=25 width=8) (actual time=0.275..12.960 rows=57.50 loops=2)
+                                                                     Filter: ((name)::text = ANY ('{arrays,linux,java}'::text[]))
+                                                                     Rows Removed by Filter: 93328
+                                                                     Buffers: shared hit=5 read=1198
+                                                               ->  Index Only Scan using tag_question_site_id_tag_id_question_id_idx on tag_question tq1  (cost=0.56..63.29 rows=32 width=12) (actual time=2.497..123.811 rows=10966.97 loops=115)
+                                                                     Index Cond: ((site_id = tag.site_id) AND (tag_id = tag.id))
+                                                                     Heap Fetches: 1261201
+                                                                     Index Searches: 115
+                                                                     Buffers: shared hit=5486 read=340657
+                                                         ->  Hash  (cost=3.16..3.16 rows=1 width=4) (actual time=0.026..0.027 rows=1.00 loops=2)
+                                                               Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                                               Buffers: shared hit=2
+                                                               ->  Seq Scan on site  (cost=0.00..3.16 rows=1 width=4) (actual time=0.017..0.020 rows=1.00 loops=2)
+                                                                     Filter: ((site_name)::text = 'german'::text)
+                                                                     Rows Removed by Filter: 172
+                                                                     Buffers: shared hit=2
+                                                   ->  Index Only Scan using question_pkey on question q1  (cost=0.43..4.23 rows=1 width=8) (never executed)
+                                                         Index Cond: ((id = tq1.question_id) AND (site_id = tq1.site_id))
+                                                         Heap Fetches: 0
+                                                         Index Searches: 0
+                                             ->  Index Only Scan using tag_question_site_id_tag_id_question_id_idx on tag_question tq2  (cost=0.56..60.00 rows=32 width=12) (never executed)
+                                                   Index Cond: ((site_id = tq1.site_id) AND (tag_id = tq1.tag_id))
+                                                   Heap Fetches: 0
+                                                   Index Searches: 0
+                                       ->  Index Only Scan using question_pkey on question q2  (cost=0.43..4.23 rows=1 width=8) (never executed)
+                                             Index Cond: ((id = tq2.question_id) AND (site_id = tq2.site_id))
+                                             Heap Fetches: 0
+                                             Index Searches: 0
+                           ->  Index Scan using comment_site_id_post_id_idx on comment c2  (cost=0.57..8.15 rows=1 width=16) (never executed)
+                                 Index Cond: ((site_id = q2.site_id) AND (post_id = q2.id))
+                                 Index Searches: 0
+                     ->  Index Only Scan using post_link_pkey on post_link pl  (cost=0.43..8.00 rows=1 width=12) (never executed)
+                           Index Cond: ((site_id = q1.site_id) AND (post_id_from = q1.id))
+                           Heap Fetches: 0
+                           Index Searches: 0
+               ->  Index Scan using comment_site_id_post_id_idx on comment c1  (cost=0.57..8.15 rows=1 width=16) (never executed)
+                     Index Cond: ((site_id = tq1.site_id) AND (post_id = tq1.question_id))
+                     Index Searches: 0
+ Planning:
+   Buffers: shared hit=976 read=90
+ Planning Time: 241.074 ms
+ Execution Time: 11937.304 ms
+(75 rows)
+
+Time: 12243.587 ms (00:12.244)

@@ -1,0 +1,65 @@
+require duckdb_mctsopt
+
+require json
+
+statement ok
+SET threads=1;
+SET max_execution_time=30000;
+SET enable_logging=true;
+SET logging_level='warning';
+SET logging_storage='memory';
+SET duckdb_mctsopt_seed=42;
+SET duckdb_mctsopt_iterations=25;
+SET duckdb_mctsopt_phases=1;
+SET duckdb_mctsopt_luby_enabled=false;
+SET duckdb_mctsopt_min_relations=3;
+SET duckdb_mctsopt_plan_shape=2;
+
+loop i 1 8
+
+statement ok
+CREATE TABLE t{i} AS SELECT range AS id, range % ({i}+1) AS fk FROM range(100*{i});
+
+endloop
+
+# This mixed join needs native fallback with the fixed budget and seed.
+foreach mode pure native shape
+
+statement ok
+SET duckdb_mctsopt_enabled=true;
+SET duckdb_mctsopt_greedy_init=('{mode}' <> 'pure');
+SET duckdb_mctsopt_greedy_init_mode=CASE WHEN '{mode}'='shape' THEN 'shape' ELSE 'native' END;
+
+query I
+SELECT count(*) FROM t1
+LEFT JOIN t2 ON t2.id=t1.id+50
+INNER JOIN t3 ON t3.id=t1.id
+SEMI JOIN t4 ON t4.fk=t3.fk
+ANTI JOIN t5 ON t5.id=t1.id+480
+LEFT JOIN t6 ON t6.id=t2.id
+  AND t6.fk<>t1.fk
+INNER JOIN t7 ON t7.id=t3.id
+  AND (t6.id IS NULL OR t7.fk>t6.fk);
+----
+48
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+
+query III
+SELECT (value->>'fallback')::BOOLEAN,
+       value->>'fallback_reason' = CASE WHEN '{mode}'='pure'
+           THEN 'no_plan' ELSE 'greedy_initialization_failed' END,
+       (value->>'greedy_invocations')::INTEGER = CASE WHEN '{mode}'='pure' THEN 0 ELSE 1 END
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+----
+true	true	true
+
+endloop
+
+query II
+SELECT duckdb_mctsopt_fallback_count(),
+       (SELECT count(*) FROM duckdb_logs
+        WHERE message LIKE 'duckdb_mctsopt:%fallback=native_search%');
+----
+3	3

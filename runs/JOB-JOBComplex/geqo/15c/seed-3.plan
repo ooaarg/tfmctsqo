@@ -1,0 +1,93 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=231879.76..231879.77 rows=1 width=64) (actual time=15589.131..15613.814 rows=1.00 loops=1)
+   Buffers: shared hit=1197596 read=165281, temp read=9684 written=9832
+   ->  Gather  (cost=82664.78..231879.75 rows=2 width=60) (actual time=3206.288..15613.373 rows=2271.00 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=1197596 read=165281, temp read=9684 written=9832
+         ->  Nested Loop  (cost=81664.78..230879.55 rows=1 width=60) (actual time=2768.342..15566.300 rows=757.00 loops=3)
+               Buffers: shared hit=1197596 read=165281, temp read=9684 written=9832
+               ->  Nested Loop  (cost=81664.65..230879.40 rows=1 width=64) (actual time=2768.320..15565.709 rows=757.00 loops=3)
+                     Buffers: shared hit=1195320 read=165281, temp read=9684 written=9832
+                     ->  Nested Loop  (cost=81664.23..230878.96 rows=1 width=68) (actual time=2768.277..15495.749 rows=757.00 loops=3)
+                           Buffers: shared hit=1188860 read=164923, temp read=9684 written=9832
+                           ->  Nested Loop  (cost=81663.80..230877.19 rows=1 width=80) (actual time=2628.220..15420.636 rows=94.67 loops=3)
+                                 Buffers: shared hit=1188026 read=164677, temp read=9684 written=9832
+                                 ->  Nested Loop  (cost=81663.65..230875.83 rows=7 width=84) (actual time=2627.924..15419.989 rows=94.67 loops=3)
+                                       Join Filter: (mi.movie_id = t.id)
+                                       Buffers: shared hit=1187457 read=164676, temp read=9684 written=9832
+                                       ->  Parallel Hash Join  (cost=81663.22..116133.24 rows=38863 width=33) (actual time=2302.541..2601.779 rows=72829.67 loops=3)
+                                             Hash Cond: (mc.company_id = cn.id)
+                                             Buffers: shared hit=8 read=58655, temp read=9684 written=9832
+                                             ->  Parallel Hash Join  (cost=76317.15..110504.29 rows=107764 width=37) (actual time=2155.600..2401.088 rows=308506.67 loops=3)
+                                                   Hash Cond: (mc.movie_id = t.id)
+                                                   Buffers: shared hit=8 read=55660, temp read=9684 written=9832
+                                                   ->  Parallel Seq Scan on movie_companies mc  (cost=0.00..29661.37 rows=1087137 width=12) (actual time=3.194..52.775 rows=869709.67 loops=3)
+                                                         Buffers: shared read=18790
+                                                   ->  Parallel Hash  (cost=75012.10..75012.10 rows=104404 width=25) (actual time=2150.219..2150.459 rows=46991.33 loops=3)
+                                                         Buckets: 262144  Batches: 1  Memory Usage: 10816kB
+                                                         Buffers: shared hit=8 read=36870, temp read=9684 written=9832
+                                                         ->  Parallel Hash Join  (cost=62647.25..75012.10 rows=104404 width=25) (actual time=2095.555..2137.329 rows=46991.33 loops=3)
+                                                               Hash Cond: (at.movie_id = t.id)
+                                                               Buffers: shared hit=8 read=36870, temp read=9684 written=9832
+                                                               ->  Parallel Index Only Scan using movie_id_aka_title on aka_title at  (cost=0.42..6513.92 rows=150613 width=4) (actual time=0.129..55.698 rows=120490.67 loops=3)
+                                                                     Heap Fetches: 0
+                                                                     Index Searches: 1
+                                                                     Buffers: shared hit=8 read=793
+                                                               ->  Parallel Hash  (cost=49242.56..49242.56 rows=730101 width=21) (actual time=2019.006..2019.008 rows=583010.67 loops=3)
+                                                                     Buckets: 131072  Batches: 16  Memory Usage: 7200kB
+                                                                     Buffers: shared read=36077, temp written=8680
+                                                                     ->  Parallel Seq Scan on title t  (cost=0.00..49242.56 rows=730101 width=21) (actual time=2.369..1924.942 rows=583010.67 loops=3)
+                                                                           Filter: (production_year > 1990)
+                                                                           Rows Removed by Filter: 259760
+                                                                           Buffers: shared read=36077
+                                             ->  Parallel Hash  (cost=4722.92..4722.92 rows=49852 width=4) (actual time=145.959..145.959 rows=28281.00 loops=3)
+                                                   Buckets: 131072  Batches: 1  Memory Usage: 4384kB
+                                                   Buffers: shared read=2995
+                                                   ->  Parallel Seq Scan on company_name cn  (cost=0.00..4722.92 rows=49852 width=4) (actual time=2.525..140.988 rows=28281.00 loops=3)
+                                                         Filter: ((country_code)::text = '[us]'::text)
+                                                         Rows Removed by Filter: 50051
+                                                         Buffers: shared read=2995
+                                       ->  Index Scan using movie_id_movie_info on movie_info mi  (cost=0.43..2.94 rows=1 width=51) (actual time=0.176..0.176 rows=0.00 loops=218489)
+                                             Index Cond: (movie_id = mc.movie_id)
+                                             Filter: ((note ~~ '%internet%'::text) AND ((info ~~ 'USA:% 199%'::text) OR (info ~~ 'USA:% 200%'::text)))
+                                             Rows Removed by Filter: 108
+                                             Index Searches: 218489
+                                             Buffers: shared hit=1187449 read=106021
+                                 ->  Index Scan using info_type_pkey on info_type it1  (cost=0.14..0.19 rows=1 width=4) (actual time=0.005..0.005 rows=1.00 loops=284)
+                                       Index Cond: (id = mi.info_type_id)
+                                       Filter: ((info)::text = 'release dates'::text)
+                                       Index Searches: 284
+                                       Buffers: shared hit=569 read=1
+                           ->  Index Scan using movie_id_movie_keyword on movie_keyword mk  (cost=0.43..1.30 rows=46 width=8) (actual time=0.743..0.792 rows=8.00 loops=284)
+                                 Index Cond: (movie_id = t.id)
+                                 Index Searches: 284
+                                 Buffers: shared hit=834 read=246
+                     ->  Index Only Scan using keyword_pkey on keyword k  (cost=0.42..0.44 rows=1 width=4) (actual time=0.092..0.092 rows=1.00 loops=2271)
+                           Index Cond: (id = mk.keyword_id)
+                           Heap Fetches: 0
+                           Index Searches: 2271
+                           Buffers: shared hit=6460 read=358
+               ->  Index Only Scan using company_type_pkey on company_type ct  (cost=0.13..0.15 rows=1 width=4) (actual time=0.000..0.000 rows=1.00 loops=2271)
+                     Index Cond: (id = mc.company_type_id)
+                     Heap Fetches: 0
+                     Index Searches: 2271
+                     Buffers: shared hit=2276
+ Planning:
+   Buffers: shared hit=606 read=124
+ Planning Time: 181.722 ms
+ Execution Time: 15614.074 ms
+(78 rows)
+
+Time: 15839.765 ms (00:15.840)

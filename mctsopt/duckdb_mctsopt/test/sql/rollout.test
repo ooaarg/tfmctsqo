@@ -1,0 +1,90 @@
+require duckdb_mctsopt
+
+require json
+
+statement ok
+SET threads=1;
+SET max_execution_time=30000;
+SET duckdb_mctsopt_min_relations=3;
+CREATE TABLE dimension AS SELECT range AS id FROM range(100);
+CREATE TABLE fact AS SELECT range AS id, range % 100 AS fk FROM range(1000);
+CREATE TABLE other AS SELECT range AS id FROM range(1000);
+CREATE TABLE replay(seed INTEGER, policy VARCHAR, plan VARCHAR, cost DOUBLE);
+
+query IIIII
+SELECT current_setting('duckdb_mctsopt_rollout')='rank_biased',
+       current_setting('duckdb_mctsopt_rollout_epsilon')=0.25,
+       current_setting('duckdb_mctsopt_plan_shape')=1,
+       current_setting('duckdb_mctsopt_retention_enabled'),
+       NOT current_setting('duckdb_mctsopt_greedy_init');
+----
+true	true	true	true	true
+
+foreach policy random luby rank_biased
+
+foreach seed 42 101
+
+loop repetition 0 2
+
+statement ok
+SET duckdb_mctsopt_rollout='{policy}';
+SET duckdb_mctsopt_seed={seed};
+SET duckdb_mctsopt_retention_enabled=('{policy}'='rank_biased');
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM dimension d JOIN fact f ON d.id=f.fk
+JOIN other o ON f.id=o.id WHERE d.id=1;
+----
+10
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+
+query III
+SELECT (value->>'fallback')::BOOLEAN=false,
+       value->>'rollout'='{policy}',
+       CASE WHEN '{policy}'='rank_biased'
+            THEN ((value->'retention')->>'replay_verified')::BOOLEAN
+             AND ((value->'retention')->>'eligible_scans')::INTEGER > 0
+            ELSE value->>'retention' IS NULL END
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+----
+true	true	true
+
+statement ok
+INSERT INTO replay SELECT {seed}, '{policy}', value->>'final_plan', (value->>'cost')::DOUBLE
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+
+endloop
+
+endloop
+
+endloop
+
+query I
+SELECT count(*) FROM (SELECT seed, policy FROM replay GROUP BY seed, policy
+HAVING count(*)<>2 OR count(DISTINCT (plan,cost))<>1);
+----
+0
+
+foreach epsilon -0.1 1.1 NaN
+
+statement ok
+SET duckdb_mctsopt_enabled=true;
+SET duckdb_mctsopt_rollout_epsilon='{epsilon}';
+
+statement error
+SELECT count(*) FROM dimension d JOIN fact f ON d.id=f.fk JOIN other o ON f.id=o.id;
+----
+duckdb_mctsopt_rollout_epsilon must be in [0, 1]
+
+endloop
+
+statement ok
+SET duckdb_mctsopt_rollout_epsilon=0.25;
+
+query I
+SELECT count(*) FROM dimension d JOIN fact f ON d.id=f.fk JOIN other o ON f.id=o.id WHERE d.id=1;
+----
+10

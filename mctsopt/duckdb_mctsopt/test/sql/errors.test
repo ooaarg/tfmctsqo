@@ -1,0 +1,81 @@
+require duckdb_mctsopt
+
+require json
+
+statement ok
+SET threads=1;
+SET max_execution_time=30000;
+SET duckdb_mctsopt_seed=42;
+SET duckdb_mctsopt_iterations=25;
+SET duckdb_mctsopt_phases=1;
+SET duckdb_mctsopt_luby_enabled=false;
+SET duckdb_mctsopt_min_relations=3;
+
+loop i 1 5
+
+statement ok
+CREATE TABLE t{i} AS SELECT range AS id FROM range(10);
+
+endloop
+
+statement ok
+SET duckdb_mctsopt_enabled=true;
+SET duckdb_mctsopt_iterations=0;
+
+statement error
+SELECT count(*) FROM t1, t2, t3, t4
+WHERE t1.id=t2.id AND t2.id=t3.id AND t3.id=t4.id;
+----
+must be between 1 and 100000000
+
+statement ok
+SET duckdb_mctsopt_iterations=25;
+SET debug_force_no_cross_product=true;
+
+statement error
+SELECT count(*) FROM t1, t2, t3;
+----
+cross-product
+
+statement ok
+SET debug_force_no_cross_product=false;
+SET duckdb_mctsopt_enabled=false;
+
+query I
+SELECT duckdb_mctsopt_core_no_plan_count() > 0;
+----
+true
+
+# Cancellation must leave the connection usable for another search.
+statement ok
+SET duckdb_mctsopt_enabled=true;
+SET duckdb_mctsopt_iterations=100000000;
+SET duckdb_mctsopt_full_budget=true;
+SET max_execution_time=10;
+
+statement error
+SELECT count(*) FROM t1, t2, t3, t4
+WHERE t1.id=t2.id AND t2.id=t3.id AND t3.id=t4.id;
+----
+Query exceeded maximum execution time
+
+statement ok
+SET max_execution_time=30000;
+SET duckdb_mctsopt_full_budget=false;
+SET duckdb_mctsopt_iterations=25;
+
+query I
+SELECT count(*) FROM t1, t2, t3, t4
+WHERE t1.id=t2.id AND t2.id=t3.id AND t3.id=t4.id;
+----
+10
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+
+query II
+SELECT (value->>'iterations')::INTEGER > 0, (value->>'fallback')::BOOLEAN
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+----
+true	false
+

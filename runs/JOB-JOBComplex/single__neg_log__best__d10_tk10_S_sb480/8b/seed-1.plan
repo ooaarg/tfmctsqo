@@ -1,0 +1,130 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=42884.46..42884.47 rows=1 width=64) (actual time=1646.391..1655.970 rows=1.00 loops=1)
+   Buffers: shared hit=55080 read=24118
+   ->  Gather  (cost=1002.30..42884.45 rows=1 width=33) (actual time=743.088..1655.932 rows=6.00 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=55080 read=24118
+         ->  Nested Loop  (cost=2.30..41884.35 rows=1 width=33) (actual time=1151.832..1627.842 rows=2.00 loops=3)
+               Buffers: shared hit=55080 read=24118
+               ->  Nested Loop  (cost=1.87..41883.60 rows=1 width=41) (actual time=1133.517..1620.195 rows=8.00 loops=3)
+                     Buffers: shared hit=55008 read=24093
+                     ->  Nested Loop  (cost=1.73..41883.43 rows=1 width=45) (actual time=1101.166..1619.873 rows=57.00 loops=3)
+                           Buffers: shared hit=55000 read=24092
+                           ->  Nested Loop  (cost=1.30..41882.38 rows=1 width=25) (actual time=1099.609..1588.440 rows=34.67 loops=3)
+                                 Join Filter: (ci.movie_id = t.id)
+                                 Buffers: shared hit=54681 read=23993
+                                 ->  Nested Loop  (cost=0.86..41717.86 rows=1 width=25) (actual time=1088.712..1555.542 rows=1.33 loops=3)
+                                       Buffers: shared hit=54644 read=23882
+                                       ->  Nested Loop  (cost=0.42..41684.37 rows=4 width=4) (actual time=3.016..600.749 rows=2831.67 loops=3)
+                                             Buffers: shared hit=33607 read=19461
+                                             ->  Parallel Seq Scan on movie_companies mc  (cost=0.00..40532.74 rows=153 width=8) (actual time=1.735..413.847 rows=2856.33 loops=3)
+                                                   Filter: ((note ~~ '%(Japan)%'::text) AND (note !~~ '%(USA)%'::text) AND ((note ~~ '%(2006)%'::text) OR (note ~~ '%(2007)%'::text)))
+                                                   Rows Removed by Filter: 866853
+                                                   Buffers: shared read=18790
+                                             ->  Index Scan using company_name_pkey on company_name cn  (cost=0.42..7.53 rows=1 width=4) (actual time=0.065..0.065 rows=0.99 loops=8569)
+                                                   Index Cond: (id = mc.company_id)
+                                                   Filter: ((country_code)::text = '[jp]'::text)
+                                                   Rows Removed by Filter: 0
+                                                   Index Searches: 8569
+                                                   Buffers: shared hit=33607 read=671
+                                       ->  Memoize  (cost=0.44..8.36 rows=1 width=21) (actual time=0.337..0.337 rows=0.00 loops=8495)
+                                             Cache Key: mc.movie_id
+                                             Cache Mode: logical
+                                             Estimates: capacity=4 distinct keys=4 lookups=4 hit percent=0.00%
+                                             Hits: 756  Misses: 2039  Evictions: 0  Overflows: 0  Memory Usage: 136kB
+                                             Buffers: shared hit=21037 read=4421
+                                             Worker 0:  Hits: 782  Misses: 2395  Evictions: 0  Overflows: 0  Memory Usage: 160kB
+                                             Worker 1:  Hits: 593  Misses: 1930  Evictions: 0  Overflows: 0  Memory Usage: 129kB
+                                             ->  Index Scan using title_pkey on title t  (cost=0.43..8.35 rows=1 width=21) (actual time=0.449..0.449 rows=0.00 loops=6364)
+                                                   Index Cond: (id = mc.movie_id)
+                                                   Filter: ((production_year >= 2006) AND (production_year <= 2007) AND ((title ~~ 'One Piece%'::text) OR (title ~~ 'Dragon Ball Z%'::text)))
+                                                   Rows Removed by Filter: 1
+                                                   Index Searches: 6364
+                                                   Buffers: shared hit=21037 read=4421
+                                 ->  Index Scan using movie_id_cast_info on cast_info ci  (cost=0.44..164.51 rows=1 width=12) (actual time=8.167..24.658 rows=26.00 loops=4)
+                                       Index Cond: (movie_id = mc.movie_id)
+                                       Filter: (note = '(voice: English version)'::text)
+                                       Rows Removed by Filter: 17
+                                       Index Searches: 4
+                                       Buffers: shared hit=37 read=111
+                           ->  Index Scan using person_id_aka_name on aka_name an  (cost=0.42..1.03 rows=2 width=20) (actual time=0.802..0.905 rows=1.64 loops=104)
+                                 Index Cond: (person_id = ci.person_id)
+                                 Index Searches: 104
+                                 Buffers: shared hit=319 read=99
+                     ->  Memoize  (cost=0.15..0.17 rows=1 width=4) (actual time=0.005..0.005 rows=0.14 loops=171)
+                           Cache Key: ci.role_id
+                           Cache Mode: logical
+                           Estimates: capacity=1 distinct keys=1 lookups=1 hit percent=0.00%
+                           Hits: 104  Misses: 2  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                           Buffers: shared hit=8 read=1
+                           Worker 1:  Hits: 63  Misses: 2  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                           ->  Index Scan using role_type_pkey on role_type rt  (cost=0.14..0.16 rows=1 width=4) (actual time=0.202..0.202 rows=0.50 loops=4)
+                                 Index Cond: (id = ci.role_id)
+                                 Filter: ((role)::text = 'actress'::text)
+                                 Rows Removed by Filter: 0
+                                 Index Searches: 4
+                                 Buffers: shared hit=8 read=1
+               ->  Index Scan using name_pkey on name n  (cost=0.43..0.75 rows=1 width=4) (actual time=0.955..0.955 rows=0.25 loops=24)
+                     Index Cond: (id = an.person_id)
+                     Filter: ((name ~~ '%Yo%'::text) AND (name !~~ '%Yu%'::text))
+                     Rows Removed by Filter: 1
+                     Index Searches: 24
+                     Buffers: shared hit=72 read=25
+ Planning:
+   Buffers: shared hit=464 read=116
+ Planning Time: 113.253 ms
+ MCTS Relations: 7
+ MCTS Phases: 1
+ MCTS Iterations: 118
+ MCTS Expand Strategy: cost
+ MCTS Full Budget: off
+ MCTS Depth-Limit Rollouts: 106
+ MCTS Total Random Rollouts: 106
+ MCTS Rollout Failures: 0
+ MCTS Exhausted: 0
+ MCTS Best Cost: 44576.52
+   Found at Phase: 1
+   Found at Iteration: 14
+ MCTS Cache: on
+   Cost Evals: 381
+   Cache Hits: 21
+   Cache Size: 111
+   Cache Max Size: 50000
+   Cache Hit Ratio: 5.2 %
+ MCTS Total Planning Time: 44.409 ms
+ MCTS Search Time: 44.351 ms
+   Selection Time: 0.068 ms
+   Expansion Time: 12.838 ms
+   Rollout Time: 31.409 ms
+   Backprop Time: 0.009 ms
+ MCTS Replay Time: 0.058 ms
+ Execution Time: 1657.835 ms
+(101 rows)
+
+Time: 1813.527 ms (00:01.814)

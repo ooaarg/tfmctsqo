@@ -1,0 +1,111 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=9532.89..9532.90 rows=1 width=128) (actual time=5350.294..5350.417 rows=1.00 loops=1)
+   Buffers: shared hit=429012 read=70288
+   ->  Nested Loop  (cost=1010.51..9532.88 rows=1 width=81) (actual time=3147.476..5350.340 rows=84.00 loops=1)
+         Buffers: shared hit=429012 read=70288
+         ->  Nested Loop  (cost=1010.08..9531.55 rows=1 width=70) (actual time=3142.852..5329.366 rows=84.00 loops=1)
+               Buffers: shared hit=428703 read=70261
+               ->  Nested Loop  (cost=1009.94..9531.37 rows=1 width=74) (actual time=3142.828..5329.140 rows=252.00 loops=1)
+                     Join Filter: (mi_idx.movie_id = t.id)
+                     Buffers: shared hit=428199 read=70261
+                     ->  Nested Loop  (cost=1009.51..9530.24 rows=1 width=84) (actual time=3133.874..5319.996 rows=84.00 loops=1)
+                           Buffers: shared hit=427870 read=70254
+                           ->  Nested Loop  (cost=1009.37..9530.06 rows=1 width=88) (actual time=3133.179..5319.201 rows=84.00 loops=1)
+                                 Join Filter: (mi.movie_id = t.id)
+                                 Buffers: shared hit=427704 read=70252
+                                 ->  Nested Loop  (cost=1008.94..9526.91 rows=1 width=37) (actual time=3128.911..5311.389 rows=53.00 loops=1)
+                                       Buffers: shared hit=427274 read=70206
+                                       ->  Nested Loop  (cost=1008.52..9525.13 rows=1 width=41) (actual time=3124.434..5298.146 rows=119.00 loops=1)
+                                             Join Filter: (mc.movie_id = t.id)
+                                             Buffers: shared hit=426816 read=70188
+                                             ->  Nested Loop  (cost=1008.09..9522.92 rows=1 width=33) (actual time=2243.728..5278.301 rows=77.00 loops=1)
+                                                   Join Filter: (ci.movie_id = t.id)
+                                                   Buffers: shared hit=426460 read=70151
+                                                   ->  Gather  (cost=1007.65..9499.91 rows=1 width=25) (actual time=1890.612..4178.891 rows=49.00 loops=1)
+                                                         Workers Planned: 2
+                                                         Workers Launched: 2
+                                                         Buffers: shared hit=423861 read=68621
+                                                         ->  Nested Loop  (cost=7.65..8499.81 rows=1 width=25) (actual time=1849.294..4572.513 rows=16.33 loops=3)
+                                                               Buffers: shared hit=423861 read=68621
+                                                               ->  Nested Loop  (cost=7.22..8387.70 rows=98 width=4) (actual time=28.849..2244.608 rows=25571.33 loops=3)
+                                                                     Buffers: shared hit=146882 read=38742
+                                                                     ->  Parallel Index Scan using keyword_pkey on keyword k  (cost=0.42..5119.37 rows=3 width=4) (actual time=21.546..241.536 rows=2.33 loops=3)
+                                                                           Filter: (keyword = ANY ('{murder,violence,blood,gore,death,female-nudity,hospital}'::text[]))
+                                                                           Rows Removed by Filter: 44721
+                                                                           Index Searches: 1
+                                                                           Buffers: shared hit=131140 read=1481
+                                                                     ->  Bitmap Heap Scan on movie_keyword mk  (cost=6.80..1086.39 rows=305 width=8) (actual time=4.432..856.570 rows=10959.14 loops=7)
+                                                                           Recheck Cond: (k.id = keyword_id)
+                                                                           Heap Blocks: exact=12389
+                                                                           Buffers: shared hit=15742 read=37261
+                                                                           ->  Bitmap Index Scan on keyword_id_movie_keyword  (cost=0.00..6.72 rows=305 width=0) (actual time=3.006..3.007 rows=10959.14 loops=7)
+                                                                                 Index Cond: (keyword_id = k.id)
+                                                                                 Index Searches: 7
+                                                                                 Buffers: shared hit=10 read=75
+                                                               ->  Index Scan using title_pkey on title t  (cost=0.43..1.14 rows=1 width=21) (actual time=0.091..0.091 rows=0.00 loops=76714)
+                                                                     Index Cond: (id = mk.movie_id)
+                                                                     Filter: ((production_year > 2000) AND ((title ~~ '%Freddy%'::text) OR (title ~~ '%Jason%'::text) OR (title ~~ 'Saw%'::text)))
+                                                                     Rows Removed by Filter: 1
+                                                                     Index Searches: 76714
+                                                                     Buffers: shared hit=276979 read=29879
+                                                   ->  Index Scan using movie_id_cast_info on cast_info ci  (cost=0.44..23.00 rows=1 width=8) (actual time=15.229..22.435 rows=1.57 loops=49)
+                                                         Index Cond: (movie_id = mk.movie_id)
+                                                         Filter: (note = ANY ('{(writer),"(head writer)","(written by)",(story),"(story editor)"}'::text[]))
+                                                         Rows Removed by Filter: 82
+                                                         Index Searches: 49
+                                                         Buffers: shared hit=2599 read=1530
+                                             ->  Index Scan using movie_id_movie_companies on movie_companies mc  (cost=0.43..2.19 rows=1 width=8) (actual time=0.225..0.257 rows=1.55 loops=77)
+                                                   Index Cond: (movie_id = mk.movie_id)
+                                                   Filter: (note ~~ '%(Blu-ray)%'::text)
+                                                   Rows Removed by Filter: 24
+                                                   Index Searches: 77
+                                                   Buffers: shared hit=356 read=37
+                                       ->  Index Scan using company_name_pkey on company_name cn  (cost=0.42..1.67 rows=1 width=4) (actual time=0.111..0.111 rows=0.45 loops=119)
+                                             Index Cond: (id = mc.company_id)
+                                             Filter: (name ~~ 'Lionsgate%'::text)
+                                             Rows Removed by Filter: 1
+                                             Index Searches: 119
+                                             Buffers: shared hit=458 read=18
+                                 ->  Index Scan using movie_id_movie_info on movie_info mi  (cost=0.43..3.14 rows=1 width=51) (actual time=0.108..0.147 rows=1.58 loops=53)
+                                       Index Cond: (movie_id = mk.movie_id)
+                                       Filter: (info = ANY ('{Horror,Thriller}'::text[]))
+                                       Rows Removed by Filter: 292
+                                       Index Searches: 53
+                                       Buffers: shared hit=430 read=46
+                           ->  Index Scan using info_type_pkey on info_type it1  (cost=0.14..0.16 rows=1 width=4) (actual time=0.009..0.009 rows=1.00 loops=84)
+                                 Index Cond: (id = mi.info_type_id)
+                                 Filter: ((info)::text = 'genres'::text)
+                                 Index Searches: 84
+                                 Buffers: shared hit=166 read=2
+                     ->  Index Scan using movie_id_movie_info_idx on movie_info_idx mi_idx  (cost=0.43..1.09 rows=3 width=14) (actual time=0.108..0.108 rows=3.00 loops=84)
+                           Index Cond: (movie_id = mk.movie_id)
+                           Index Searches: 84
+                           Buffers: shared hit=329 read=7
+               ->  Index Scan using info_type_pkey on info_type it  (cost=0.14..0.16 rows=1 width=4) (actual time=0.001..0.001 rows=0.33 loops=252)
+                     Index Cond: (id = mi_idx.info_type_id)
+                     Filter: ((info)::text = 'votes'::text)
+                     Rows Removed by Filter: 1
+                     Index Searches: 252
+                     Buffers: shared hit=504
+         ->  Index Scan using name_pkey on name n  (cost=0.43..1.33 rows=1 width=19) (actual time=0.249..0.249 rows=1.00 loops=84)
+               Index Cond: (id = ci.person_id)
+               Filter: ((gender)::text = 'm'::text)
+               Index Searches: 84
+               Buffers: shared hit=309 read=27
+ Planning:
+   Buffers: shared hit=819 read=151
+ Planning Time: 264.362 ms
+ Execution Time: 5350.761 ms
+(97 rows)
+
+Time: 5682.457 ms (00:05.682)

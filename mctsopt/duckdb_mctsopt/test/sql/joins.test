@@ -1,0 +1,121 @@
+require duckdb_mctsopt
+
+require json
+
+statement ok
+SET threads=1;
+SET max_execution_time=30000;
+SET duckdb_mctsopt_seed=42;
+SET duckdb_mctsopt_iterations=25;
+SET duckdb_mctsopt_phases=1;
+SET duckdb_mctsopt_luby_enabled=false;
+SET duckdb_mctsopt_min_relations=3;
+
+loop i 1 15
+
+statement ok
+CREATE TABLE t{i} AS SELECT range AS id, range % ({i}+1) AS fk FROM range(100*{i});
+
+endloop
+
+foreach mode disabled pure native shape
+
+foreach shape 0 1 2
+
+statement ok
+SET duckdb_mctsopt_enabled=('{mode}' <> 'disabled');
+SET duckdb_mctsopt_plan_shape={shape};
+SET duckdb_mctsopt_greedy_init=('{mode}' IN ('native', 'shape'));
+SET duckdb_mctsopt_greedy_init_mode=CASE WHEN '{mode}'='shape' THEN 'shape' ELSE 'native' END;
+
+# Chain
+query I
+SELECT count(*) FROM t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14
+WHERE t1.id=t2.id
+  AND t2.id=t3.id
+  AND t3.id=t4.id
+  AND t4.id=t5.id
+  AND t5.id=t6.id
+  AND t6.id=t7.id
+  AND t7.id=t8.id
+  AND t8.id=t9.id
+  AND t9.id=t10.id
+  AND t10.id=t11.id
+  AND t11.id=t12.id
+  AND t12.id=t13.id
+  AND t13.id=t14.id;
+----
+100
+
+# Foreign-key chain
+query I
+SELECT count(*) FROM t1,t2,t3,t4,t5,t6,t7,t8
+WHERE t1.fk=t2.id
+  AND t2.fk=t3.id
+  AND t3.fk=t4.id
+  AND t4.fk=t5.id
+  AND t5.fk=t6.id
+  AND t6.fk=t7.id
+  AND t7.fk=t8.id;
+----
+100
+
+# Star
+query I
+SELECT count(*) FROM t14,t1,t2,t3,t4,t5,t6,t7,t8
+WHERE t14.id=t1.id
+  AND t14.fk=t2.fk
+  AND t14.id=t3.id+10
+  AND t14.id=t4.id
+  AND t14.id=t5.id
+  AND t14.id=t6.id+1
+  AND t14.fk=t7.id
+  AND t14.id=t8.id;
+----
+1200
+
+# Left joins
+query I
+SELECT count(*) FROM t1
+LEFT JOIN t2 ON t1.id=t2.id
+LEFT JOIN t3 ON t2.id=t3.id;
+----
+100
+
+# Mixed joins
+query I
+SELECT count(*) FROM t1
+LEFT JOIN t2 ON t2.id=t1.id+50
+INNER JOIN t3 ON t3.id=t1.id
+SEMI JOIN t4 ON t4.fk=t3.fk
+ANTI JOIN t5 ON t5.id=t1.id+480
+LEFT JOIN t6 ON t6.id=t2.id
+  AND t6.fk<>t1.fk
+INNER JOIN t7 ON t7.id=t3.id
+  AND (t6.id IS NULL OR t7.fk>t6.fk);
+----
+48
+
+# Cross product
+query I
+SELECT count(*) FROM t1,t2,t3,t4,t5
+WHERE t1.id=t2.id
+  AND t3.id=t4.id
+  AND t1.id<5
+  AND t3.id<3
+  AND t5.id<2;
+----
+30
+
+# Three-relation predicate
+query I
+SELECT count(*) FROM t1,t2,t3
+WHERE t1.id+t2.id=t3.id
+  AND t1.id<7
+  AND t2.id<11;
+----
+77
+
+endloop
+
+endloop

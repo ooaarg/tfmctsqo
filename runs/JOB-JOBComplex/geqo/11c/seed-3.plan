@@ -1,0 +1,102 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=4695.28..4695.29 rows=1 width=96) (actual time=739.033..752.555 rows=1.00 loops=1)
+   Buffers: shared hit=514970 read=7023
+   ->  Nested Loop  (cost=1003.99..4695.27 rows=1 width=60) (actual time=307.146..751.399 rows=6946.00 loops=1)
+         Join Filter: (ml.movie_id = t.id)
+         Buffers: shared hit=514970 read=7023
+         ->  Nested Loop  (cost=1003.56..4694.77 rows=1 width=55) (actual time=303.828..736.835 rows=6946.00 loops=1)
+               Buffers: shared hit=487193 read=7016
+               ->  Nested Loop  (cost=1003.14..4666.00 rows=63 width=40) (actual time=280.543..502.689 rows=14916.00 loops=1)
+                     Buffers: shared hit=427741 read=6804
+                     ->  Nested Loop  (cost=1003.00..4663.63 rows=84 width=44) (actual time=279.849..497.864 rows=15510.00 loops=1)
+                           Join Filter: (mc.movie_id = ml.movie_id)
+                           Buffers: shared hit=427738 read=6803
+                           ->  Nested Loop  (cost=1002.57..4645.76 rows=31 width=8) (actual time=277.890..305.162 rows=1460.00 loops=1)
+                                 Buffers: shared hit=421055 read=6594
+                                 ->  Merge Join  (cost=1002.42..4642.48 rows=31 width=12) (actual time=277.849..304.498 rows=1460.00 loops=1)
+                                       Merge Cond: (mk.movie_id = ml.movie_id)
+                                       Buffers: shared hit=421039 read=6594
+                                       ->  Gather Merge  (cost=1000.89..140924.93 rows=101 width=4) (actual time=275.904..292.022 rows=481.00 loops=1)
+                                             Workers Planned: 2
+                                             Workers Launched: 2
+                                             Buffers: shared hit=420952 read=6392
+                                             ->  Nested Loop  (cost=0.86..139913.25 rows=42 width=4) (actual time=22.733..452.533 rows=1366.00 loops=3)
+                                                   Buffers: shared hit=420952 read=6392
+                                                   ->  Parallel Index Scan using movie_id_movie_keyword on movie_keyword mk  (cost=0.43..86217.02 rows=1884971 width=8) (actual time=1.076..194.520 rows=278056.67 loops=3)
+                                                         Index Searches: 1
+                                                         Buffers: shared hit=3448 read=5568
+                                                   ->  Memoize  (cost=0.43..0.45 rows=1 width=4) (actual time=0.001..0.001 rows=0.00 loops=834170)
+                                                         Cache Key: mk.keyword_id
+                                                         Cache Mode: logical
+                                                         Estimates: capacity=14850 distinct keys=14850 lookups=1884971 hit percent=99.21%
+                                                         Hits: 311  Misses: 622  Evictions: 0  Overflows: 0  Memory Usage: 42kB
+                                                         Buffers: shared hit=417504 read=824
+                                                         Worker 0:  Hits: 362709  Misses: 52237  Evictions: 0  Overflows: 0  Memory Usage: 3469kB
+                                                         Worker 1:  Hits: 366570  Misses: 51721  Evictions: 0  Overflows: 0  Memory Usage: 3435kB
+                                                         ->  Index Scan using keyword_pkey on keyword k  (cost=0.42..0.44 rows=1 width=4) (actual time=0.005..0.005 rows=0.00 loops=104580)
+                                                               Index Cond: (id = mk.keyword_id)
+                                                               Filter: (keyword = ANY ('{sequel,revenge,based-on-novel}'::text[]))
+                                                               Rows Removed by Filter: 1
+                                                               Index Searches: 104580
+                                                               Buffers: shared hit=417504 read=824
+                                       ->  Index Scan using movie_id_movie_link on movie_link ml  (cost=0.29..795.51 rows=29997 width=8) (actual time=1.874..10.610 rows=30043.00 loops=1)
+                                             Index Searches: 1
+                                             Buffers: shared hit=87 read=202
+                                 ->  Memoize  (cost=0.15..0.17 rows=1 width=4) (actual time=0.000..0.000 rows=1.00 loops=1460)
+                                       Cache Key: ml.link_type_id
+                                       Cache Mode: logical
+                                       Estimates: capacity=16 distinct keys=16 lookups=31 hit percent=48.39%
+                                       Hits: 1445  Misses: 15  Evictions: 0  Overflows: 0  Memory Usage: 2kB
+                                       Buffers: shared hit=16
+                                       ->  Index Only Scan using link_type_pkey on link_type lt  (cost=0.14..0.16 rows=1 width=4) (actual time=0.002..0.002 rows=1.00 loops=15)
+                                             Index Cond: (id = ml.link_type_id)
+                                             Heap Fetches: 0
+                                             Index Searches: 15
+                                             Buffers: shared hit=16
+                           ->  Index Scan using movie_id_movie_companies on movie_companies mc  (cost=0.43..0.54 rows=3 width=36) (actual time=0.113..0.130 rows=10.62 loops=1460)
+                                 Index Cond: (movie_id = mk.movie_id)
+                                 Filter: (note IS NOT NULL)
+                                 Rows Removed by Filter: 2
+                                 Index Searches: 1460
+                                 Buffers: shared hit=6683 read=209
+                     ->  Memoize  (cost=0.14..0.16 rows=1 width=4) (actual time=0.000..0.000 rows=0.96 loops=15510)
+                           Cache Key: mc.company_type_id
+                           Cache Mode: logical
+                           Estimates: capacity=2 distinct keys=2 lookups=84 hit percent=97.62%
+                           Hits: 15508  Misses: 2  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                           Buffers: shared hit=3 read=1
+                           ->  Index Scan using company_type_pkey on company_type ct  (cost=0.13..0.15 rows=1 width=4) (actual time=0.346..0.346 rows=0.50 loops=2)
+                                 Index Cond: (id = mc.company_type_id)
+                                 Filter: ((kind)::text <> 'production companies'::text)
+                                 Rows Removed by Filter: 0
+                                 Index Searches: 2
+                                 Buffers: shared hit=3 read=1
+               ->  Index Scan using company_name_pkey on company_name cn  (cost=0.42..0.46 rows=1 width=23) (actual time=0.016..0.016 rows=0.47 loops=14916)
+                     Index Cond: (id = mc.company_id)
+                     Filter: (((country_code)::text <> '[pl]'::text) AND ((name ~~ '20th Century Fox%'::text) OR (name ~~ 'Twentieth Century Fox%'::text)))
+                     Rows Removed by Filter: 1
+                     Index Searches: 14916
+                     Buffers: shared hit=59452 read=212
+         ->  Index Scan using title_pkey on title t  (cost=0.43..0.49 rows=1 width=21) (actual time=0.002..0.002 rows=1.00 loops=6946)
+               Index Cond: (id = mk.movie_id)
+               Filter: (production_year > 1950)
+               Index Searches: 6946
+               Buffers: shared hit=27777 read=7
+ Planning:
+   Buffers: shared hit=552 read=109
+ Planning Time: 134.946 ms
+ Execution Time: 752.921 ms
+(87 rows)
+
+Time: 940.813 ms

@@ -1,0 +1,52 @@
+diff --git a/src/include/duckdb/optimizer/join_order/join_order_extension.hpp b/src/include/duckdb/optimizer/join_order/join_order_extension.hpp
+index 4d2f474070..9aaeb75827 100644
+--- a/src/include/duckdb/optimizer/join_order/join_order_extension.hpp
++++ b/src/include/duckdb/optimizer/join_order/join_order_extension.hpp
+@@ -40,6 +40,11 @@ public:
+ 	void PrepareSearch();
+ 	//! Discard external plans and run native search without selecting extensions again.
+ 	bool FallbackToNative();
++	//! Populate the native memo using its greedy approximate search.
++	bool InitializeGreedy();
++	bool HasCompletePlan() const;
++	optional_ptr<JoinRelationSet> CompleteRelation() const;
++	string BestPlanSignature() const;
+ 	double BestCost() const;
+ 
+ private:
+diff --git a/src/optimizer/join_order/plan_enumerator.cpp b/src/optimizer/join_order/plan_enumerator.cpp
+index fb595c7c60..170cc5010b 100644
+--- a/src/optimizer/join_order/plan_enumerator.cpp
++++ b/src/optimizer/join_order/plan_enumerator.cpp
+@@ -701,6 +701,31 @@ bool JoinOrderSearchContext::FallbackToNative() {
+ 	}
+ 	return enumerator.SolveJoinOrderApproximately() && enumerator.HasCompletePlan();
+ }
++bool JoinOrderSearchContext::InitializeGreedy() {
++	return enumerator.SolveJoinOrderApproximately() && enumerator.HasCompletePlan();
++}
++bool JoinOrderSearchContext::HasCompletePlan() const {
++	return bool(CompleteRelation());
++}
++optional_ptr<JoinRelationSet> JoinOrderSearchContext::CompleteRelation() const {
++	for (auto &entry : enumerator.plans) {
++		if (entry.first.get().count == RelationCount()) {
++			return &entry.second->set;
++		}
++	}
++	return nullptr;
++}
++static string MemoSignature(const JoinOrderSearchContext &context, JoinRelationSet &set) {
++	auto &node = context.GetPlan(set);
++	if (node.is_leaf) {
++		return set.ToString();
++	}
++	return "(" + MemoSignature(context, node.left_set) + "," + MemoSignature(context, node.right_set) + ")";
++}
++string JoinOrderSearchContext::BestPlanSignature() const {
++	auto complete = CompleteRelation();
++	return complete ? MemoSignature(*this, *complete) : "";
++}
+ double JoinOrderSearchContext::BestCost() const {
+ 	for (auto &entry : enumerator.plans) {
+ 		if (entry.first.get().count == RelationCount()) {

@@ -1,0 +1,148 @@
+LOAD
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+Timing is on.
+                                                                                                                                                    QUERY PLAN                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=59273.61..59273.62 rows=1 width=8) (actual time=22526.496..22539.401 rows=1.00 loops=1)
+   Buffers: shared hit=83836 read=48074
+   ->  Gather  (cost=22280.04..59273.61 rows=1 width=0) (actual time=22157.325..22539.370 rows=41.00 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=83836 read=48074
+         ->  Hash Join  (cost=21280.04..58273.51 rows=1 width=0) (actual time=22100.412..22508.765 rows=13.67 loops=3)
+               Hash Cond: (mc.movie_id = t.id)
+               Buffers: shared hit=83836 read=48074
+               ->  Parallel Hash Join  (cost=5093.21..42058.80 rows=7430 width=4) (actual time=106.335..681.766 rows=7478.00 loops=3)
+                     Hash Cond: (mc.company_id = cn.id)
+                     Buffers: shared hit=2 read=21786
+                     ->  Hash Join  (cost=1.07..35539.78 rows=543568 width=8) (actual time=2.630..524.721 rows=869709.67 loops=3)
+                           Hash Cond: (mc.company_type_id = ct.id)
+                           Buffers: shared hit=2 read=18791
+                           ->  Parallel Seq Scan on movie_companies mc  (cost=0.00..29661.37 rows=1087137 width=12) (actual time=1.757..423.872 rows=869709.67 loops=3)
+                                 Buffers: shared read=18790
+                           ->  Hash  (cost=1.05..1.05 rows=2 width=4) (actual time=0.847..0.848 rows=2.00 loops=3)
+                                 Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                 Buffers: shared hit=2 read=1
+                                 ->  Seq Scan on company_type ct  (cost=0.00..1.05 rows=2 width=4) (actual time=0.836..0.837 rows=2.00 loops=3)
+                                       Filter: ((kind)::text = ANY ('{distributors,"production companies"}'::text[]))
+                                       Rows Removed by Filter: 2
+                                       Buffers: shared hit=2 read=1
+                     ->  Parallel Hash  (cost=5068.53..5068.53 rows=1889 width=4) (actual time=101.909..101.909 rows=1059.00 loops=3)
+                           Buckets: 4096  Batches: 1  Memory Usage: 192kB
+                           Buffers: shared read=2995
+                           ->  Parallel Seq Scan on company_name cn  (cost=0.02..5068.53 rows=1889 width=4) (actual time=2.224..99.950 rows=1059.00 loops=3)
+                                 Filter: ((country_code)::text = ANY ('{[cl],[co],[cz],[lu],[no],[pe],[ro],[th],[ve]}'::text[]))
+                                 Rows Removed by Filter: 77273
+                                 Buffers: shared read=2995
+               ->  Hash  (cost=16186.42..16186.42 rows=33 width=12) (actual time=21826.260..21826.268 rows=143.00 loops=3)
+                     Buckets: 1024  Batches: 1  Memory Usage: 15kB
+                     Buffers: shared hit=83834 read=26288
+                     ->  Nested Loop  (cost=8.13..16186.42 rows=33 width=12) (actual time=228.723..21825.949 rows=143.00 loops=3)
+                           Buffers: shared hit=83834 read=26288
+                           ->  Nested Loop  (cost=7.70..16121.01 rows=143 width=16) (actual time=40.956..19172.642 rows=2098.00 loops=3)
+                                 Join Filter: (ci.role_id = rt.id)
+                                 Rows Removed by Join Filter: 20611
+                                 Buffers: shared hit=61755 read=23189
+                                 ->  Seq Scan on role_type rt  (cost=0.00..1.15 rows=1 width=4) (actual time=0.280..0.283 rows=1.00 loops=3)
+                                       Filter: ((role)::text = 'producer'::text)
+                                       Rows Removed by Filter: 11
+                                       Buffers: shared hit=2 read=1
+                                 ->  Nested Loop  (cost=7.70..16098.36 rows=1720 width=20) (actual time=18.375..19167.913 rows=22709.00 loops=3)
+                                       Join Filter: (t.id = ci.movie_id)
+                                       Buffers: shared hit=61753 read=23188
+                                       ->  Nested Loop  (cost=7.26..15867.19 rows=120 width=8) (actual time=14.088..1208.745 rows=415.00 loops=3)
+                                             Join Filter: (t.kind_id = kt.id)
+                                             Rows Removed by Join Filter: 258
+                                             Buffers: shared hit=12018 read=3138
+                                             ->  Nested Loop  (cost=7.26..15854.34 rows=281 width=12) (actual time=13.336..1207.098 rows=465.00 loops=3)
+                                                   Buffers: shared hit=12016 read=3137
+                                                   ->  Nested Loop  (cost=6.83..15655.68 rows=405 width=4) (actual time=9.608..81.804 rows=827.00 loops=3)
+                                                         Buffers: shared hit=3498 read=1729
+                                                         ->  Seq Scan on keyword k  (cost=0.03..2961.58 rows=12 width=4) (actual time=5.961..39.947 rows=11.00 loops=3)
+                                                               Filter: (keyword = ANY ('{car-repair,crush-phone-with-foot,declassified-government-document,father-daughter-romance,finding-ones-way-home,going-steady,greenhouse-gas,minho-portugal,overlord,trees-for-israel,underground-water,winter}'::text[]))
+                                                               Rows Removed by Filter: 134159
+                                                               Buffers: shared hit=1882 read=949
+                                                         ->  Bitmap Heap Scan on movie_keyword mk  (cost=6.80..1054.79 rows=305 width=8) (actual time=2.789..3.758 rows=75.18 loops=33)
+                                                               Recheck Cond: (keyword_id = k.id)
+                                                               Heap Blocks: exact=765
+                                                               Buffers: shared hit=1616 read=780
+                                                               ->  Bitmap Index Scan on keyword_id_movie_keyword  (cost=0.00..6.72 rows=305 width=0) (actual time=1.577..1.577 rows=75.18 loops=33)
+                                                                     Index Cond: (keyword_id = k.id)
+                                                                     Index Searches: 33
+                                                                     Buffers: shared hit=85 read=16
+                                                   ->  Index Scan using title_pkey on title t  (cost=0.43..0.49 rows=1 width=8) (actual time=1.359..1.359 rows=0.56 loops=2481)
+                                                         Index Cond: (id = mk.movie_id)
+                                                         Filter: ((production_year <= 2015) AND (1990 < production_year))
+                                                         Rows Removed by Filter: 0
+                                                         Index Searches: 2481
+                                                         Buffers: shared hit=8518 read=1408
+                                             ->  Materialize  (cost=0.00..1.11 rows=3 width=4) (actual time=0.002..0.002 rows=1.45 loops=1395)
+                                                   Storage: Memory  Maximum Storage: 17kB
+                                                   Buffers: shared hit=2 read=1
+                                                   ->  Seq Scan on kind_type kt  (cost=0.00..1.10 rows=3 width=4) (actual time=0.735..0.738 rows=3.00 loops=3)
+                                                         Filter: ((kind)::text = ANY ('{episode,movie,"video movie"}'::text[]))
+                                                         Rows Removed by Filter: 4
+                                                         Buffers: shared hit=2 read=1
+                                       ->  Index Scan using movie_id_cast_info on cast_info ci  (cost=0.44..1.41 rows=41 width=12) (actual time=1.790..43.235 rows=54.72 loops=1245)
+                                             Index Cond: (movie_id = mk.movie_id)
+                                             Index Searches: 1245
+                                             Buffers: shared hit=49735 read=20050
+                           ->  Index Scan using name_pkey on name n  (cost=0.43..0.46 rows=1 width=4) (actual time=1.263..1.263 rows=0.07 loops=6294)
+                                 Index Cond: (id = ci.person_id)
+                                 Filter: ((gender)::text = 'f'::text)
+                                 Rows Removed by Filter: 1
+                                 Index Searches: 6294
+                                 Buffers: shared hit=22079 read=3099
+ Planning:
+   Buffers: shared hit=623 read=134
+ Planning Time: 125.094 ms
+ MCTS Relations: 10
+ MCTS Phases: 1
+ MCTS Iterations: 187
+ MCTS Expand Strategy: cost
+ MCTS Full Budget: off
+ MCTS Depth-Limit Rollouts: 185
+ MCTS Total Random Rollouts: 185
+ MCTS Rollout Failures: 0
+ MCTS Exhausted: 0
+ MCTS Best Cost: 85096.09
+   Found at Phase: 1
+   Found at Iteration: 29
+ MCTS Cache: on
+   Cost Evals: 807
+   Cache Hits: 91
+   Cache Size: 155
+   Cache Max Size: 50000
+   Cache Hit Ratio: 10.1 %
+ MCTS Total Planning Time: 66.278 ms
+ MCTS Search Time: 66.135 ms
+   Selection Time: 0.160 ms
+   Expansion Time: 2.188 ms
+   Rollout Time: 8.779 ms
+   Backprop Time: 0.018 ms
+ MCTS Replay Time: 0.143 ms
+ Execution Time: 22539.714 ms
+(119 rows)
+
+Time: 22713.056 ms (00:22.713)

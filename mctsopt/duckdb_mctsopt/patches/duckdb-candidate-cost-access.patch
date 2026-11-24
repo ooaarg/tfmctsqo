@@ -1,0 +1,298 @@
+diff --git a/src/include/duckdb/optimizer/join_order/cardinality_estimator.hpp b/src/include/duckdb/optimizer/join_order/cardinality_estimator.hpp
+index a4f7898e..6c3a768a 100644
+--- a/src/include/duckdb/optimizer/join_order/cardinality_estimator.hpp
++++ b/src/include/duckdb/optimizer/join_order/cardinality_estimator.hpp
+@@ -41,6 +41,9 @@ public:
+ 	template <class T>
+ 	T EstimateCardinalityWithSet(JoinRelationSet &new_set);
+ 
++	//! Read an already estimated double cardinality without populating estimator caches.
++	bool TryGetCachedCardinality(JoinRelationSet &set, double &cardinality) const;
++
+ 	//! used for debugging.
+ 	void AddRelationNamesToRelationStats(vector<RelationStats> &stats);
+ 	void PrintRelationStats();
+diff --git a/src/include/duckdb/optimizer/join_order/cost_model.hpp b/src/include/duckdb/optimizer/join_order/cost_model.hpp
+index 4b8c83ac..f1d772ff 100644
+--- a/src/include/duckdb/optimizer/join_order/cost_model.hpp
++++ b/src/include/duckdb/optimizer/join_order/cost_model.hpp
+@@ -23,6 +23,12 @@ public:
+ 	double ComputeCost(DPJoinNode &left, DPJoinNode &right, JoinRelationSet &combination,
+ 	                   const vector<reference<NeighborInfo>> &possible_connections);
+ 	CardinalityEstimator &GetCardinalityEstimator();
++	//! Diagnostic counterpart of ComputeCost's local terms; never estimates an uncached set.
++	bool TryGetCachedLocalCost(JoinRelationSet &set, const vector<reference<NeighborInfo>> &connections,
++	                           double &join_cardinality, double &left_input_cost) const;
++	//! Assemble a join's cost from its local terms and its inputs' costs. ComputeCost and every
++	//! diagnostic recost go through here, so they cannot drift apart.
++	static double CombineCost(double join_cardinality, double left_input_cost, double left_cost, double right_cost);
+ 
+ private:
+ 	//! query graph storing relation manager information
+diff --git a/src/include/duckdb/optimizer/join_order/join_order_extension.hpp b/src/include/duckdb/optimizer/join_order/join_order_extension.hpp
+index 9aaeb758..c362193d 100644
+--- a/src/include/duckdb/optimizer/join_order/join_order_extension.hpp
++++ b/src/include/duckdb/optimizer/join_order/join_order_extension.hpp
+@@ -19,6 +19,30 @@ struct JoinOrderExtensionInput {
+ 	optional_ptr<OptimizerExtensionInfo> info;
+ };
+ 
++// One reachable memo topology, not an enumeration of alternative candidate trees.
++struct JoinOrderMemoCostDiagnostics {
++	bool complete = true;
++	double stored_cost = 0;
++	double recosted_cost = 0;
++	idx_t nodes = 0;
++	idx_t stale_nodes = 0;
++	idx_t missing_estimates = 0;
++	idx_t invalid_nodes = 0;
++	idx_t left_cost_nodes = 0;
++	idx_t fractional_cardinality_nodes = 0;
++	double left_input_cost = 0;
++	double max_absolute_gap = 0;
++	double max_relative_gap = 0;
++};
++
++struct JoinOrderSampledCost {
++	//! False when a local term was not cached or the sum was not finite; the other fields are then unset.
++	bool valid = false;
++	double cost = 0;
++	double cardinality = 0;
++	double left_input_cost = 0;
++};
++
+ // Valid only for the duration of one search. Native legality and costing stay in DuckDB.
+ class JoinOrderSearchContext {
+ 	friend class PlanEnumerator;
+@@ -36,6 +60,13 @@ public:
+ 	                            const JoinRelationSet &right) const;
+ 	optional_ptr<DPJoinNode> EmitPair(JoinRelationSet &left, JoinRelationSet &right,
+ 	                                  const vector<reference<NeighborInfo>> &connections);
++	//! Emit a legal pair natively, then freeze its local cost terms using the same resolved connections.
++	//! Read-only towards the memo beyond the emission itself; sampled_cost.valid reports whether the terms were
++	//! available, so a missing estimate is a missing observation rather than a planner fault.
++	optional_ptr<DPJoinNode> EmitPairWithSampledCost(JoinRelationSet &left, JoinRelationSet &right,
++	                                                 const vector<reference<NeighborInfo>> &connections,
++	                                                 double sampled_left_cost, double sampled_right_cost,
++	                                                 JoinOrderSampledCost &sampled_cost);
+ 	//! Keep only native leaf plans and enable required graph edges, without enumerating plans.
+ 	void PrepareSearch();
+ 	//! Discard external plans and run native search without selecting extensions again.
+@@ -46,6 +77,8 @@ public:
+ 	optional_ptr<JoinRelationSet> CompleteRelation() const;
+ 	string BestPlanSignature() const;
+ 	double BestCost() const;
++	//! Read cached costs without changing search or estimator state.
++	JoinOrderMemoCostDiagnostics DiagnoseMemoCost(JoinRelationSet &set) const;
+ 
+ private:
+ 	PlanEnumerator &enumerator;
+diff --git a/src/optimizer/join_order/cardinality_estimator.cpp b/src/optimizer/join_order/cardinality_estimator.cpp
+index 4d48fd3d..ee8341b3 100644
+--- a/src/optimizer/join_order/cardinality_estimator.cpp
++++ b/src/optimizer/join_order/cardinality_estimator.cpp
+@@ -911,6 +911,15 @@ double CardinalityEstimator::EstimateCardinalityWithSet(JoinRelationSet &new_set
+ 	return ApplyOrFilterSelectivities(new_set, result);
+ }
+ 
++bool CardinalityEstimator::TryGetCachedCardinality(JoinRelationSet &set, double &cardinality) const {
++	auto entry = state->relation_set_2_cardinality.find(set);
++	if (entry == state->relation_set_2_cardinality.end()) {
++		return false;
++	}
++	cardinality = ApplyOrFilterSelectivities(set, entry->second.cardinality_before_filters);
++	return true;
++}
++
+ double CardinalityEstimator::ApplyOrFilterSelectivities(JoinRelationSet &new_set, double cardinality) const {
+ 	for (auto &filter : state->or_filters) {
+ 		if (JoinRelationSet::IsSubset(new_set, filter->set.get())) {
+diff --git a/src/optimizer/join_order/cost_model.cpp b/src/optimizer/join_order/cost_model.cpp
+index 821a4edf..107de9ad 100644
+--- a/src/optimizer/join_order/cost_model.cpp
++++ b/src/optimizer/join_order/cost_model.cpp
+@@ -14,11 +14,13 @@ CardinalityEstimator &CostModel::GetCardinalityEstimator() {
+ 	return cardinality_estimator;
+ }
+ 
+-static double GetLeftJoinInputCost(CardinalityEstimator &cardinality_estimator,
+-                                   const vector<reference<NeighborInfo>> &possible_connections) {
+-	double cost = 0;
++// Sum the RHS input cardinalities of the LEFT joins among the connections, counting each right side once.
++// The lookup reports whether a cardinality is available; an unavailable one ends the sum with false.
++template <class LOOKUP>
++static bool SumLeftJoinInputs(const vector<reference<NeighborInfo>> &connections, LOOKUP &&lookup, double &cost) {
++	cost = 0;
+ 	reference_set_t<JoinRelationSet> seen_right_sides;
+-	for (auto &connection : possible_connections) {
++	for (auto &connection : connections) {
+ 		for (auto predicate_ref : connection.get().predicates) {
+ 			auto &predicate = predicate_ref.get();
+ 			if (predicate.GetJoinType() != JoinType::LEFT) {
+@@ -28,10 +30,35 @@ static double GetLeftJoinInputCost(CardinalityEstimator &cardinality_estimator,
+ 			if (!seen_right_sides.insert(predicate.GetRightSet()).second) {
+ 				continue;
+ 			}
+-			cost += cardinality_estimator.EstimateCardinalityWithSet<double>(predicate.GetRightSet());
++			double cardinality;
++			if (!lookup(predicate.GetRightSet(), cardinality)) {
++				return false;
++			}
++			cost += cardinality;
+ 		}
+ 	}
+-	return cost;
++	return true;
++}
++
++double CostModel::CombineCost(double join_cardinality, double left_input_cost, double left_cost, double right_cost) {
++	return (join_cardinality + left_input_cost) + left_cost + right_cost;
++}
++
++bool CostModel::TryGetCachedLocalCost(JoinRelationSet &set, const vector<reference<NeighborInfo>> &connections,
++                                      double &join_cardinality, double &left_input_cost) const {
++	left_input_cost = 0;
++	if (!cardinality_estimator.TryGetCachedCardinality(set, join_cardinality)) {
++		return false;
++	}
++	if (!query_graph_manager.GetPredicateModel().HasLeftJoinPredicates()) {
++		return true;
++	}
++	return SumLeftJoinInputs(
++	    connections,
++	    [&](JoinRelationSet &right, double &cardinality) {
++		    return cardinality_estimator.TryGetCachedCardinality(right, cardinality);
++	    },
++	    left_input_cost);
+ }
+ 
+ // Currently cost of a join mostly factors in the cardinalities.
+@@ -40,11 +67,17 @@ static double GetLeftJoinInputCost(CardinalityEstimator &cardinality_estimator,
+ double CostModel::ComputeCost(DPJoinNode &left, DPJoinNode &right, JoinRelationSet &combination,
+                               const vector<reference<NeighborInfo>> &possible_connections) {
+ 	auto join_card = cardinality_estimator.EstimateCardinalityWithSet<double>(combination);
+-	auto join_cost = join_card;
++	double left_input_cost = 0;
+ 	if (query_graph_manager.GetPredicateModel().HasLeftJoinPredicates()) {
+-		join_cost += GetLeftJoinInputCost(cardinality_estimator, possible_connections);
++		SumLeftJoinInputs(
++		    possible_connections,
++		    [&](JoinRelationSet &right, double &cardinality) {
++			    cardinality = cardinality_estimator.EstimateCardinalityWithSet<double>(right);
++			    return true;
++		    },
++		    left_input_cost);
+ 	}
+-	return join_cost + left.cost + right.cost;
++	return CombineCost(join_card, left_input_cost, left.cost, right.cost);
+ }
+ 
+ } // namespace duckdb
+diff --git a/src/optimizer/join_order/plan_enumerator.cpp b/src/optimizer/join_order/plan_enumerator.cpp
+index 170cc501..48c1101d 100644
+--- a/src/optimizer/join_order/plan_enumerator.cpp
++++ b/src/optimizer/join_order/plan_enumerator.cpp
+@@ -6,6 +6,7 @@
+ #include "duckdb/main/settings.hpp"
+ 
+ #include <cmath>
++#include <functional>
+ #include "duckdb/optimizer/optimizer_extension.hpp"
+ #include "duckdb/optimizer/optimizer.hpp"
+ 
+@@ -683,6 +684,34 @@ optional_ptr<DPJoinNode> JoinOrderSearchContext::EmitPair(JoinRelationSet &left,
+ 	}
+ 	return enumerator.EmitPair(left, right, native_connections);
+ }
++
++optional_ptr<DPJoinNode> JoinOrderSearchContext::EmitPairWithSampledCost(
++    JoinRelationSet &left, JoinRelationSet &right, const vector<reference<NeighborInfo>> &connections,
++    double sampled_left_cost, double sampled_right_cost, JoinOrderSampledCost &sampled_cost) {
++	sampled_cost = JoinOrderSampledCost();
++	auto plan = EmitPair(left, right, connections);
++	if (!plan) {
++		return nullptr;
++	}
++	// Empty inputs use the native resolved cache, including any newly created cross-product edge.
++	auto &resolved = connections.empty() ? enumerator.GetConnections(left, right) : connections;
++	vector<reference<NeighborInfo>> applicable;
++	for (auto &connection : resolved) {
++		if (IsConnectionApplicable(connection, left, right)) {
++			applicable.push_back(connection);
++		}
++	}
++	// The pair is already emitted; an uncached term only means there is nothing to observe.
++	if (!enumerator.cost_model.TryGetCachedLocalCost(plan->set, applicable, sampled_cost.cardinality,
++	                                                 sampled_cost.left_input_cost)) {
++		return plan;
++	}
++	sampled_cost.cost = CostModel::CombineCost(sampled_cost.cardinality, sampled_cost.left_input_cost,
++	                                           sampled_left_cost, sampled_right_cost);
++	sampled_cost.valid = std::isfinite(sampled_cost.cost);
++	return plan;
++}
++
+ void JoinOrderSearchContext::PrepareSearch() {
+ 	for (auto entry = enumerator.plans.begin(); entry != enumerator.plans.end();) {
+ 		if (!entry->second->is_leaf) {
+@@ -704,6 +733,60 @@ bool JoinOrderSearchContext::FallbackToNative() {
+ bool JoinOrderSearchContext::InitializeGreedy() {
+ 	return enumerator.SolveJoinOrderApproximately() && enumerator.HasCompletePlan();
+ }
++
++JoinOrderMemoCostDiagnostics JoinOrderSearchContext::DiagnoseMemoCost(JoinRelationSet &set) const {
++	JoinOrderMemoCostDiagnostics result;
++	result.stored_cost = GetPlan(set).cost;
++	std::function<double(JoinRelationSet &)> recost = [&](JoinRelationSet &current) -> double {
++		auto &node = GetPlan(current);
++		result.nodes++;
++		if (!std::isfinite(node.cost)) {
++			result.complete = false;
++			result.invalid_nodes++;
++		}
++		if (node.is_leaf) {
++			return node.cost;
++		}
++		auto left_cost = recost(node.left_set);
++		auto right_cost = recost(node.right_set);
++		if (!std::isfinite(left_cost) || !std::isfinite(right_cost)) {
++			// Counted where it arose; every ancestor would otherwise count the same fault again.
++			return NAN;
++		}
++		vector<reference<NeighborInfo>> applicable;
++		for (auto &connection : GetQueryGraph().GetConnections(node.left_set, node.right_set)) {
++			if (IsConnectionApplicable(connection, node.left_set, node.right_set)) {
++				applicable.push_back(connection);
++			}
++		}
++		double join_cardinality = 0;
++		double left_input_cost = 0;
++		if (!enumerator.cost_model.TryGetCachedLocalCost(current, applicable, join_cardinality, left_input_cost)) {
++			result.complete = false;
++			result.missing_estimates++;
++			return NAN;
++		}
++		result.left_input_cost += left_input_cost;
++		result.left_cost_nodes += left_input_cost != 0;
++		result.fractional_cardinality_nodes += join_cardinality != std::floor(join_cardinality);
++		auto cost = CostModel::CombineCost(join_cardinality, left_input_cost, left_cost, right_cost);
++		if (!std::isfinite(cost)) {
++			result.complete = false;
++			result.invalid_nodes++;
++			return cost;
++		}
++		auto gap = std::abs(node.cost - cost);
++		auto scale = MaxValue(1.0, MaxValue(std::abs(node.cost), std::abs(cost)));
++		// Ignore floating-point summation noise, while retaining the measured maximum gap.
++		result.stale_nodes += gap > 1e-10 * scale;
++		result.max_absolute_gap = MaxValue(result.max_absolute_gap, gap);
++		result.max_relative_gap = MaxValue(result.max_relative_gap, gap / scale);
++		return cost;
++	};
++	result.recosted_cost = recost(set);
++	return result;
++}
++
+ bool JoinOrderSearchContext::HasCompletePlan() const {
+ 	return bool(CompleteRelation());
+ }

@@ -1,0 +1,92 @@
+require duckdb_mctsopt
+
+require json
+
+statement ok
+SET threads=1;
+SET max_execution_time=30000;
+SET duckdb_mctsopt_seed=42;
+SET duckdb_mctsopt_iterations=25;
+SET duckdb_mctsopt_phases=1;
+SET duckdb_mctsopt_luby_enabled=false;
+SET duckdb_mctsopt_min_relations=3;
+
+loop i 1 5
+
+statement ok
+CREATE TABLE t{i} AS SELECT range AS id FROM range(10);
+
+endloop
+
+query II
+SELECT current_setting('duckdb_mctsopt_enabled'),
+       json_array_length(duckdb_mctsopt_diagnostics());
+----
+false	0
+
+statement ok
+CREATE TABLE replay AS SELECT 0 AS repetition, '' AS mode, 0 AS shape,
+    '' AS plan, 0::BIGINT AS iterations, 0::DOUBLE AS cost WHERE false;
+
+foreach mode pure native shape
+
+foreach shape 0 1 2
+
+loop repetition 0 2
+
+statement ok
+SET duckdb_mctsopt_plan_shape={shape};
+SET duckdb_mctsopt_greedy_init=('{mode}' <> 'pure');
+SET duckdb_mctsopt_greedy_init_mode=CASE WHEN '{mode}'='shape' THEN 'shape' ELSE 'native' END;
+SET duckdb_mctsopt_enabled=true;
+
+query I
+SELECT count(*) FROM t1, t2, t3, t4
+WHERE t1.id=t2.id AND t2.id=t3.id AND t3.id=t4.id;
+----
+10
+
+statement ok
+SET duckdb_mctsopt_enabled=false;
+
+query IIII
+SELECT (value->>'greedy_invocations')::INTEGER = CASE WHEN '{mode}'='pure' THEN 0 ELSE 1 END,
+       (value->>'initial_has_plan')::BOOLEAN = ('{mode}' <> 'pure'),
+       (value->>'greedy_initialization_failed')::BOOLEAN,
+       (value->>'fallback')::BOOLEAN
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+----
+true	true	false	false
+
+query III
+SELECT (value->>'iterations')::INTEGER > 0,
+       (value->>'rollout_calls')::INTEGER > 0,
+       CASE WHEN '{mode}'='pure' THEN value->>'initial_plan' = ''
+            ELSE value->>'initial_plan' <> '' END
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+----
+true	true	true
+
+statement ok
+INSERT INTO replay SELECT {repetition}, '{mode}', {shape},
+    value->>'final_plan', (value->>'iterations')::BIGINT, (value->>'cost')::DOUBLE
+FROM json_each(duckdb_mctsopt_diagnostics()) ORDER BY key::INTEGER DESC LIMIT 1;
+
+endloop
+
+endloop
+
+endloop
+
+query I
+SELECT count(*) FROM replay;
+----
+18
+
+# The same seed must reproduce the plan, cost and completed iteration count.
+query TI
+SELECT mode, shape FROM replay GROUP BY mode, shape
+HAVING count(DISTINCT (plan, iterations, cost)) <> 1;
+----
+
+

@@ -1,0 +1,481 @@
+diff --git a/src/include/duckdb/optimizer/join_order/join_order_extension.hpp b/src/include/duckdb/optimizer/join_order/join_order_extension.hpp
+new file mode 100644
+index 0000000000..4d2f474070
+--- /dev/null
++++ b/src/include/duckdb/optimizer/join_order/join_order_extension.hpp
+@@ -0,0 +1,57 @@
++#pragma once
++
++#include "duckdb/common/common.hpp"
++#include "duckdb/optimizer/join_order/join_node.hpp"
++#include "duckdb/optimizer/join_order/query_graph.hpp"
++
++namespace duckdb {
++class ClientContext;
++class PlanEnumerator;
++struct OptimizerExtensionInfo;
++
++enum class JoinOrderSearchStage : uint8_t { COMPLETE, APPROXIMATE };
++
++// Selection is separate from execution: declining cannot mutate the search memo.
++struct JoinOrderExtensionInput {
++	ClientContext &context;
++	idx_t relation_count;
++	JoinOrderSearchStage stage;
++	optional_ptr<OptimizerExtensionInfo> info;
++};
++
++// Valid only for the duration of one search. Native legality and costing stay in DuckDB.
++class JoinOrderSearchContext {
++	friend class PlanEnumerator;
++	explicit JoinOrderSearchContext(PlanEnumerator &enumerator) : enumerator(enumerator) {
++	}
++
++public:
++	ClientContext &GetContext();
++	idx_t RelationCount() const;
++	const QueryGraphEdges &GetQueryGraph() const;
++	//! Read the current memo entry; references expire when another pair is emitted.
++	const DPJoinNode &GetPlan(JoinRelationSet &set) const;
++	JoinRelationSet &GetRelation(RelationIndex index);
++	bool IsConnectionApplicable(const NeighborInfo &connection, const JoinRelationSet &left,
++	                            const JoinRelationSet &right) const;
++	optional_ptr<DPJoinNode> EmitPair(JoinRelationSet &left, JoinRelationSet &right,
++	                                  const vector<reference<NeighborInfo>> &connections);
++	//! Keep only native leaf plans and enable required graph edges, without enumerating plans.
++	void PrepareSearch();
++	//! Discard external plans and run native search without selecting extensions again.
++	bool FallbackToNative();
++	double BestCost() const;
++
++private:
++	PlanEnumerator &enumerator;
++};
++
++class JoinOrderSearchAlgorithm {
++public:
++	virtual ~JoinOrderSearchAlgorithm() = default;
++	// True requires a complete native plan. False retains the original logical tree.
++	// Errors and cancellation propagate; neither silently selects a different algorithm.
++	virtual bool Search(JoinOrderSearchContext &context) = 0;
++};
++using join_order_function_t = unique_ptr<JoinOrderSearchAlgorithm> (*)(JoinOrderExtensionInput &input);
++} // namespace duckdb
+diff --git a/src/include/duckdb/optimizer/join_order/plan_enumerator.hpp b/src/include/duckdb/optimizer/join_order/plan_enumerator.hpp
+index 1d1b0469cf..3ba81e215e 100644
+--- a/src/include/duckdb/optimizer/join_order/plan_enumerator.hpp
++++ b/src/include/duckdb/optimizer/join_order/plan_enumerator.hpp
+@@ -21,12 +21,16 @@
+ #include "duckdb/planner/logical_operator_visitor.hpp"
+ 
+ #include <functional>
++#include "duckdb/optimizer/join_order/join_order_extension.hpp"
++#include "duckdb/common/optional.hpp"
+ 
+ namespace duckdb {
+ 
+ class QueryGraphManager;
+ 
+ class PlanEnumerator {
++	friend class JoinOrderSearchContext;
++
+ public:
+ 	explicit PlanEnumerator(QueryGraphManager &query_graph_manager, CostModel &cost_model,
+ 	                        const QueryGraphEdges &query_graph);
+@@ -65,6 +69,8 @@ private:
+ 	bool SolveJoinOrderExactly();
+ 	//! Solve the join order approximately using a greedy algorithm
+ 	bool SolveJoinOrderApproximately();
++	bool SolveJoinOrderHeuristically();
++	optional<bool> TryJoinOrderExtension(JoinOrderSearchStage stage);
+ 	bool PlanUsesCrossProduct(const DPJoinNode &node) const;
+ 	bool HasCompletePlan() const;
+ 	bool ActivateRequiredCrossProducts();
+diff --git a/src/include/duckdb/optimizer/optimizer_extension.hpp b/src/include/duckdb/optimizer/optimizer_extension.hpp
+index 4ea4b323dd..f93d01ca32 100644
+--- a/src/include/duckdb/optimizer/optimizer_extension.hpp
++++ b/src/include/duckdb/optimizer/optimizer_extension.hpp
+@@ -11,6 +11,7 @@
+ #include "duckdb/common/common.hpp"
+ #include "duckdb/planner/logical_operator.hpp"
+ #include "duckdb/main/extension_callback_manager.hpp"
++#include "duckdb/optimizer/join_order/join_order_extension.hpp"
+ 
+ namespace duckdb {
+ struct DBConfig;
+@@ -43,6 +44,9 @@ public:
+ 	//! This runs, before the DuckDB optimizers have run
+ 	pre_optimize_function_t pre_optimize_function = nullptr;
+ 
++	//! Select a join search at its native pipeline position. nullptr declines without side effects.
++	join_order_function_t join_order_function = nullptr;
++
+ 	//! Additional optimizer info passed to the optimize functions
+ 	shared_ptr<OptimizerExtensionInfo> optimizer_info;
+ 
+diff --git a/src/optimizer/join_order/plan_enumerator.cpp b/src/optimizer/join_order/plan_enumerator.cpp
+index f88abebeef..fb595c7c60 100644
+--- a/src/optimizer/join_order/plan_enumerator.cpp
++++ b/src/optimizer/join_order/plan_enumerator.cpp
+@@ -6,6 +6,8 @@
+ #include "duckdb/main/settings.hpp"
+ 
+ #include <cmath>
++#include "duckdb/optimizer/optimizer_extension.hpp"
++#include "duckdb/optimizer/optimizer.hpp"
+ 
+ namespace duckdb {
+ 
+@@ -565,6 +567,37 @@ void PlanEnumerator::InitLeafPlans() {
+ // the plan enumeration is a straight implementation of the paper "Dynamic Programming Strikes Back" by Guido
+ // Moerkotte and Thomas Neumannn, see that paper for additional info/documentation bonus slides:
+ // https://db.in.tum.de/teaching/ws1415/queryopt/chapter3.pdf?lang=de
++optional<bool> PlanEnumerator::TryJoinOrderExtension(JoinOrderSearchStage stage) {
++	auto &context = query_graph_manager.context;
++	if (Optimizer::OptimizerDisabled(context, OptimizerType::EXTENSION)) {
++		return {};
++	}
++	for (auto &extension : OptimizerExtension::Iterate(context)) {
++		if (!extension.join_order_function) {
++			continue;
++		}
++		context.InterruptCheck();
++		JoinOrderExtensionInput input {context, query_graph_manager.relation_manager.NumRelations(), stage,
++		                               extension.optimizer_info.get()};
++		auto algorithm = extension.join_order_function(input);
++		if (!algorithm) {
++			continue;
++		}
++		JoinOrderSearchContext search(*this);
++		bool solved = algorithm->Search(search);
++		if (solved && !HasCompletePlan()) {
++			throw InvalidInputException("Join-order extension reported success without a complete plan");
++		}
++		return solved;
++	}
++	return {};
++}
++
++bool PlanEnumerator::SolveJoinOrderHeuristically() {
++	auto result = TryJoinOrderExtension(JoinOrderSearchStage::APPROXIMATE);
++	return result.has_value() ? *result : SolveJoinOrderApproximately();
++}
++
+ bool PlanEnumerator::SolveJoinOrder() {
+ 	bool force_no_cross_product = Settings::Get<DebugForceNoCrossProductSetting>(query_graph_manager.context);
+ 	auto swap_to_approximate_threshold =
+@@ -572,8 +605,11 @@ bool PlanEnumerator::SolveJoinOrder() {
+ 
+ 	// first try to solve the join order exactly
+ 	bool solved;
+-	if (query_graph_manager.relation_manager.NumRelations() >= swap_to_approximate_threshold) {
+-		solved = SolveJoinOrderApproximately();
++	auto extension_result = TryJoinOrderExtension(JoinOrderSearchStage::COMPLETE);
++	if (extension_result.has_value()) {
++		solved = *extension_result;
++	} else if (query_graph_manager.relation_manager.NumRelations() >= swap_to_approximate_threshold) {
++		solved = SolveJoinOrderHeuristically();
+ 	} else {
+ 		auto completed_exactly = SolveJoinOrderExactly();
+ 		if (completed_exactly && !HasCompletePlan() && ActivateRequiredCrossProducts()) {
+@@ -581,7 +617,7 @@ bool PlanEnumerator::SolveJoinOrder() {
+ 		}
+ 		if (!completed_exactly || !HasCompletePlan()) {
+ 			// Exact enumeration either reached its pair budget or could not connect the graph.
+-			solved = SolveJoinOrderApproximately();
++			solved = SolveJoinOrderHeuristically();
+ 		} else {
+ 			solved = true;
+ 		}
+@@ -615,4 +651,63 @@ bool PlanEnumerator::SolveJoinOrder() {
+ 	return true;
+ }
+ 
++ClientContext &JoinOrderSearchContext::GetContext() {
++	return enumerator.query_graph_manager.context;
++}
++idx_t JoinOrderSearchContext::RelationCount() const {
++	return enumerator.query_graph_manager.relation_manager.NumRelations();
++}
++const QueryGraphEdges &JoinOrderSearchContext::GetQueryGraph() const {
++	return enumerator.query_graph;
++}
++const DPJoinNode &JoinOrderSearchContext::GetPlan(JoinRelationSet &set) const {
++	return *enumerator.plans.at(set);
++}
++JoinRelationSet &JoinOrderSearchContext::GetRelation(RelationIndex index) {
++	return enumerator.query_graph_manager.set_manager.GetJoinRelation(index);
++}
++bool JoinOrderSearchContext::IsConnectionApplicable(const NeighborInfo &connection, const JoinRelationSet &left,
++                                                    const JoinRelationSet &right) const {
++	return enumerator.query_graph_manager.IsConnectionApplicable(connection, left, right);
++}
++optional_ptr<DPJoinNode> JoinOrderSearchContext::EmitPair(JoinRelationSet &left, JoinRelationSet &right,
++                                                          const vector<reference<NeighborInfo>> &connections) {
++	if (!connections.empty()) {
++		return enumerator.EmitPair(left, right, connections);
++	}
++	auto native_connections = enumerator.GetConnections(left, right);
++	if (native_connections.empty() && enumerator.query_graph_manager.CanCreateCrossProduct(left, right)) {
++		enumerator.query_graph_manager.CreateQueryGraphCrossProduct(left, right);
++		enumerator.connection_cache.clear();
++		native_connections = enumerator.GetConnections(left, right);
++	}
++	return enumerator.EmitPair(left, right, native_connections);
++}
++void JoinOrderSearchContext::PrepareSearch() {
++	for (auto entry = enumerator.plans.begin(); entry != enumerator.plans.end();) {
++		if (!entry->second->is_leaf) {
++			entry = enumerator.plans.erase(entry);
++		} else {
++			++entry;
++		}
++	}
++	enumerator.ActivateRequiredCrossProducts();
++}
++bool JoinOrderSearchContext::FallbackToNative() {
++	PrepareSearch();
++	auto threshold = Settings::Get<ApproximateJoinOrderThresholdSetting>(GetContext());
++	if (RelationCount() < threshold && enumerator.SolveJoinOrderExactly() && enumerator.HasCompletePlan()) {
++		return true;
++	}
++	return enumerator.SolveJoinOrderApproximately() && enumerator.HasCompletePlan();
++}
++double JoinOrderSearchContext::BestCost() const {
++	for (auto &entry : enumerator.plans) {
++		if (entry.first.get().count == RelationCount()) {
++			return entry.second->cost;
++		}
++	}
++	return NumericLimits<double>::Maximum();
++}
++
+ } // namespace duckdb
+diff --git a/test/optimizer/CMakeLists.txt b/test/optimizer/CMakeLists.txt
+index 09e2f568ae..a39d1b1197 100644
+--- a/test/optimizer/CMakeLists.txt
++++ b/test/optimizer/CMakeLists.txt
+@@ -9,6 +9,7 @@ add_library_unity(
+   common_subplan_nonserializable.cpp
+   filter_pushdown_alias.cpp
+   join_order_conflict_detector.cpp
++  join_order_extension.cpp
+   logical_plan_verification.cpp
+   relation_statistics.cpp
+   remove_unused_columns.cpp
+diff --git a/test/optimizer/join_order_extension.cpp b/test/optimizer/join_order_extension.cpp
+new file mode 100644
+index 0000000000..fcc3bd2edf
+--- /dev/null
++++ b/test/optimizer/join_order_extension.cpp
+@@ -0,0 +1,210 @@
++#include "duckdb.hpp"
++#include "duckdb/main/config.hpp"
++#include "duckdb/main/client_context.hpp"
++#include <stdexcept>
++#include "duckdb/optimizer/optimizer_extension.hpp"
++
++#ifdef DUCKDB_JOIN_EXTENSION_STANDALONE
++#include <iostream>
++#include <stdexcept>
++#define TEST_CASE(name, tags) static void RunHookTests()
++#define REQUIRE(condition)                                                                                             \
++	do {                                                                                                               \
++		if (!(condition))                                                                                              \
++			throw std::runtime_error(#condition);                                                                      \
++	} while (false)
++#else
++#include "catch.hpp"
++#endif
++
++using namespace duckdb;
++
++namespace {
++enum class TestBehavior { ENUMERATE, NATIVE_FALLBACK, INCOMPLETE, ERROR, CANCEL, NO_PLAN };
++struct HookTestInfo : public OptimizerExtensionInfo {
++	bool enabled = false;
++	idx_t selections = 0;
++	idx_t searches = 0;
++	JoinOrderSearchStage stage = JoinOrderSearchStage::COMPLETE;
++	TestBehavior behavior = TestBehavior::ENUMERATE;
++};
++bool EnumerateTestPlans(JoinOrderSearchContext &context) {
++	context.PrepareSearch();
++	REQUIRE(context.BestCost() == NumericLimits<double>::Maximum());
++	const auto n = context.RelationCount();
++	REQUIRE(n < 8);
++	vector<optional_ptr<JoinRelationSet>> sets(idx_t(1) << n);
++	for (idx_t i = 0; i < n; i++) {
++		sets[idx_t(1) << i] = context.GetRelation(RelationIndex(i));
++	}
++	for (idx_t mask = 1; mask < sets.size(); mask++) {
++		for (idx_t left = (mask - 1) & mask; left; left = (left - 1) & mask) {
++			const auto right = mask ^ left;
++			if (!sets[left] || !sets[right]) {
++				continue;
++			}
++			auto connections = context.GetQueryGraph().GetConnections(*sets[left], *sets[right]);
++			auto plan = context.EmitPair(*sets[left], *sets[right], connections);
++			if (plan) {
++				sets[mask] = plan->set;
++			}
++		}
++	}
++	return bool(sets.back());
++}
++class HookTestSearch : public JoinOrderSearchAlgorithm {
++public:
++	explicit HookTestSearch(HookTestInfo &info) : info(info) {
++	}
++	bool Search(JoinOrderSearchContext &context) override {
++		info.searches++;
++		switch (info.behavior) {
++		case TestBehavior::NATIVE_FALLBACK:
++			return context.FallbackToNative();
++		case TestBehavior::INCOMPLETE:
++			return true;
++		case TestBehavior::ERROR:
++			throw InvalidInputException("intentional join-search test error");
++		case TestBehavior::CANCEL:
++			context.GetContext().Interrupt();
++			context.GetContext().InterruptCheck();
++			return false;
++		case TestBehavior::NO_PLAN:
++			return false;
++		default:
++			auto &leaf = context.GetRelation(RelationIndex(0));
++			REQUIRE(context.GetPlan(leaf).is_leaf);
++			REQUIRE(context.GetPlan(leaf).cost == 0);
++			REQUIRE(context.GetPlan(leaf).cardinality > 0);
++			return EnumerateTestPlans(context);
++		}
++	}
++
++private:
++	HookTestInfo &info;
++};
++unique_ptr<JoinOrderSearchAlgorithm> SelectHookTest(JoinOrderExtensionInput &input) {
++	auto &info = static_cast<HookTestInfo &>(*input.info);
++	info.selections++;
++	if (!info.enabled || input.stage != info.stage) {
++		return nullptr;
++	}
++	return make_uniq<HookTestSearch>(info);
++}
++void Good(Connection &con, const string &sql) {
++	auto result = con.Query(sql);
++	if (result->HasError()) {
++		throw std::runtime_error(result->GetError());
++	}
++}
++string Plan(Connection &con, const string &sql) {
++	auto result = con.Query("EXPLAIN " + sql);
++	if (result->HasError()) {
++		throw std::runtime_error(result->GetError());
++	}
++	return result->GetValue(1, 0).ToString();
++}
++void Count(Connection &con, const string &sql, int64_t expected) {
++	auto result = con.Query(sql);
++	REQUIRE(!result->HasError());
++	REQUIRE(result->GetValue(0, 0).GetValue<int64_t>() == expected);
++}
++} // namespace
++
++TEST_CASE("Join search extensions select safely at native search boundaries", "[optimizer][join-order-extension]") {
++	DuckDB db(nullptr);
++	Connection con(db);
++	Good(con, "SET threads=1");
++	Good(con, "CREATE TABLE a AS SELECT range AS id FROM range(10)");
++	Good(con, "CREATE TABLE b AS SELECT range AS id FROM range(20)");
++	Good(con, "CREATE TABLE c AS SELECT range AS id FROM range(30)");
++	const string query = "SELECT count(*) FROM a, b, c WHERE a.id=b.id AND b.id=c.id";
++	const auto baseline = Plan(con, query);
++	auto info = make_shared_ptr<HookTestInfo>();
++	OptimizerExtension extension;
++	extension.join_order_function = SelectHookTest;
++	extension.optimizer_info = info;
++	OptimizerExtension::Register(DBConfig::GetConfig(*db.instance), std::move(extension));
++
++	// A declined extension preserves the native result, including the physical plan.
++	REQUIRE(Plan(con, query) == baseline);
++	REQUIRE(info->selections > 0);
++	REQUIRE(info->searches == 0);
++	Count(con, query, 10);
++
++	info->enabled = true;
++	info->stage = JoinOrderSearchStage::APPROXIMATE;
++	Good(con, "SET approximate_join_order_threshold=1000");
++	REQUIRE(Plan(con, query) == baseline);
++	REQUIRE(info->searches == 0);
++	Good(con, "SET approximate_join_order_threshold=0");
++	Count(con, query, 10);
++	REQUIRE(info->searches == 1);
++
++	info->stage = JoinOrderSearchStage::COMPLETE;
++	Good(con, "SET approximate_join_order_threshold=1000");
++	Count(con, query, 10);
++	REQUIRE(info->searches == 2);
++	// Native reconstruction retains predicates and validates non-inner join sides.
++	Count(con, "SELECT count(*) FROM a LEFT JOIN b ON a.id=b.id LEFT JOIN c ON b.id=c.id", 10);
++	Count(con, "SELECT count(*) FROM a,b,c WHERE a.id+b.id=c.id", 200);
++	Count(con, "SELECT count(*) FROM a,b,c", 6000);
++	Good(con, "SET debug_force_no_cross_product=true");
++	auto cross_product = con.Query("SELECT count(*) FROM a,b,c");
++	REQUIRE(cross_product->HasError());
++	Good(con, "SET debug_force_no_cross_product=false");
++
++	const auto selected = info->selections;
++	Good(con, "SET disabled_optimizers='extension'");
++	REQUIRE(Plan(con, query) == baseline);
++	REQUIRE(info->selections == selected);
++	Good(con, "SET disabled_optimizers=''");
++
++	info->behavior = TestBehavior::NATIVE_FALLBACK;
++	Count(con, query, 10);
++	Good(con, "SET approximate_join_order_threshold=0");
++	Count(con, query, 10);
++	info->behavior = TestBehavior::INCOMPLETE;
++	auto incomplete = con.Query(query);
++	REQUIRE(incomplete->HasError());
++	REQUIRE(incomplete->GetError().find("without a complete plan") != string::npos);
++	info->behavior = TestBehavior::ERROR;
++	auto error = con.Query(query);
++	REQUIRE(error->HasError());
++	REQUIRE(error->GetError().find("intentional join-search") != string::npos);
++	info->behavior = TestBehavior::CANCEL;
++	auto cancelled = con.Query(query);
++	REQUIRE(cancelled->HasError());
++	REQUIRE(cancelled->GetError().find("Interrupt") != string::npos);
++	info->behavior = TestBehavior::NO_PLAN;
++	Count(con, query, 10);
++	info->enabled = false;
++	REQUIRE(Plan(con, query) == baseline);
++
++	// Registration order is deterministic; the next factory can handle a decline.
++	auto second = make_shared_ptr<HookTestInfo>();
++	second->enabled = true;
++	OptimizerExtension next;
++	next.join_order_function = SelectHookTest;
++	next.optimizer_info = second;
++	OptimizerExtension::Register(DBConfig::GetConfig(*db.instance), std::move(next));
++	Count(con, query, 10);
++	REQUIRE(second->searches == 1);
++	info->enabled = true;
++	info->behavior = TestBehavior::ENUMERATE;
++	Count(con, query, 10);
++	REQUIRE(second->searches == 1);
++}
++
++#ifdef DUCKDB_JOIN_EXTENSION_STANDALONE
++int main() {
++	try {
++		RunHookTests();
++		std::cout << "Join-search hook contract tests passed\n";
++		return 0;
++	} catch (const std::exception &error) {
++		std::cerr << error.what() << '\n';
++		return 1;
++	}
++}
++#endif
